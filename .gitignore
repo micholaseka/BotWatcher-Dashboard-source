@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+ui-design/node_modules/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Local account/session data
+accounts.json
+accounts.local.json
+storage/sessions/*.json
+storage/profiles/
+storage/user-data/
+
+# Logs
+*.log
+logs/
+
+# Build output
+dist/
+out/
+release/
+
+# Vite
+ui-design/dist/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.temp

@@ -1,0 +1,29 @@
+{
+  "name": "botwatcher-dashboard",
+  "version": "0.1.0",
+  "description": "Desktop app Electron + React + Playwright untuk memantau Obrolan yang perlu dijawab Facebook Marketplace.",
+  "main": "electron/main.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "concurrently \"pnpm run gui:ui\" \"pnpm run gui:electron\"",
+    "test:session": "node testing/test-session.js",
+    "test:monitor": "node testing/test-monitor.js",
+    "test:account-manager": "node testing/test-account-manager.js",
+    "gui:ui": "cd ui-design && pnpm dev",
+    "gui:electron": "wait-on http://localhost:5173 && cross-env NODE_ENV=development electron electron/main.mjs",
+    "gui": "concurrently \"pnpm run gui:ui\" \"pnpm run gui:electron\"",
+    "build:ui": "cd ui-design && pnpm build"
+  },
+  "keywords": ["electron", "react", "playwright", "facebook-marketplace"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "playwright": "^1.63.0"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "electron": "^44.2.0",
+    "wait-on": "^9.1.0"
+  }
+}

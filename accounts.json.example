@@ -1,0 +1,14 @@
+{
+  "accounts": [
+    {
+      "accountId": "akun-001",
+      "name": "Akun 001",
+      "enabled": true
+    },
+    {
+      "accountId": "akun-002",
+      "name": "Akun 002",
+      "enabled": true
+    }
+  ]
+}
