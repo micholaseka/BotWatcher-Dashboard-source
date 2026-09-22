@@ -6,11 +6,31 @@
 // dari automation.js (botautomationpost), lalu dirapikan supaya bisa jalan
 // di 2 mode.
 
-import { chromium } from "playwright";
 import fs from "fs/promises";
 import path from "path";
 import { EventEmitter } from "events";
 import { ENGINE_MODE, getSessionConfig } from "../config/engine.config.js";
+
+let chromium = null;
+
+async function getChromium() {
+  if (chromium) return chromium;
+
+  // In the packaged Windows app, Chromium is shipped under resources/.
+  // Dev mode continues to use Playwright's normal browser cache.
+  if (
+    !process.defaultApp &&
+    process.resourcesPath
+  ) {
+    process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(
+      process.resourcesPath,
+      "playwright-browsers",
+    );
+  }
+
+  ({ chromium } = await import("playwright"));
+  return chromium;
+}
 
 function toPlaywrightProxy(proxy) {
   if (!proxy?.server) {
@@ -131,7 +151,9 @@ export class MarketplaceSession extends EventEmitter {
       this.emit("log", "Tidak ada sesi tersimpan untuk akun ini.", "info");
     }
 
-    this.browser = await chromium.launch({
+    const playwrightChromium = await getChromium();
+
+    this.browser = await playwrightChromium.launch({
       headless: false,
 
       ...(this.proxy
@@ -165,7 +187,9 @@ export class MarketplaceSession extends EventEmitter {
    * bukan menyuntik sesi ke browser kosong.
    */
   async openChromePortable() {
-    this.context = await chromium.launchPersistentContext(
+    const playwrightChromium = await getChromium();
+
+    this.context = await playwrightChromium.launchPersistentContext(
       this.config.userDataDir,
       {
         executablePath: this.config.executablePath,
