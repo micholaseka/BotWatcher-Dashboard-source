@@ -2,6 +2,8 @@ name: Windows Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -68,7 +70,29 @@ jobs:
           Get-ChildItem -Path release -File |
             Select-Object Name, Length
 
+      - name: Smoke test packaged Windows EXE
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path release -Filter "*Portable*.exe" |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            Write-Error "Portable Windows EXE tidak ditemukan."
+            exit 1
+          }
+
+          Write-Host "Menjalankan smoke test: $($exe.FullName)"
+          & $exe.FullName --smoke-test-account-manager
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Packaged AccountManager smoke test gagal dengan exit code $LASTEXITCODE."
+            exit $LASTEXITCODE
+          }
+
+          Write-Host "Packaged AccountManager smoke test passed."
+
       - name: Create GitHub Release
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
