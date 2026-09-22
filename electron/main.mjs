@@ -15,6 +15,9 @@ import { TelegramNotifier } from "../src/notifications/telegram.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
+const isAccountManagerSmokeTest = process.argv.includes(
+  "--smoke-test-account-manager",
+);
 
 let mainWindow = null;
 let rotator = null;
@@ -51,6 +54,49 @@ async function initializeManager() {
 async function getManager() {
   return initializeManager();
 }
+
+async function runAccountManagerSmokeTest() {
+  const activeManager = await initializeManager();
+  const accountId = \`smoke-\${Date.now()}\`;
+
+  try {
+    const created = await activeManager.addAccount({
+      accountId,
+      name: "Windows Packaged Smoke Test",
+      city: "Kediri",
+    });
+
+    if (
+      created.accountId !== accountId ||
+      created.enabled !== true
+    ) {
+      throw new Error(
+        "AccountManager smoke test gagal membuat akun aktif.",
+      );
+    }
+
+    const persisted = activeManager.getAccount(accountId);
+
+    if (!persisted) {
+      throw new Error(
+        "AccountManager smoke test gagal membaca akun yang baru dibuat.",
+      );
+    }
+
+    console.log(
+      \`[smoke] AccountManager OK: \${activeManager.databaseFile}\`,
+    );
+  } finally {
+    try {
+      if (activeManager.getAccount(accountId)) {
+        await activeManager.removeAccount(accountId);
+      }
+    } finally {
+      activeManager.close();
+    }
+  }
+}
+
 const notifier = new TelegramNotifier();
 const replySessions = new Map(); // accountId -> MarketplaceSession aktif buat reply manual
 
@@ -431,6 +477,20 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (isAccountManagerSmokeTest) {
+    try {
+      await runAccountManagerSmokeTest();
+      app.quit();
+    } catch (error) {
+      console.error(
+        "[smoke] AccountManager smoke test gagal:",
+        error,
+      );
+      app.exit(1);
+    }
+    return;
+  }
+
   try {
     await initializeManager();
   } catch {}
