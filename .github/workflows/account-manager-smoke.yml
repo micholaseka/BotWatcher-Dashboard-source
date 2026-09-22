@@ -1,0 +1,38 @@
+name: Account Manager Smoke Test
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "electron/**"
+      - "src/**"
+      - "testing/test-account-manager.js"
+      - "testing/test-add-account.js"
+      - ".github/workflows/account-manager-smoke.yml"
+  pull_request:
+    paths:
+      - "electron/**"
+      - "src/**"
+      - "testing/test-account-manager.js"
+      - "testing/test-add-account.js"
+      - ".github/workflows/account-manager-smoke.yml"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test AccountManager persistence
+        run: node testing/test-account-manager.js
+
+      - name: Test add account persistence
+        run: node testing/test-add-account.js
