@@ -41,3 +41,6 @@ Thumbs.db``
 # Proxy credential files
 proxies.csv
 *.proxy.csv
+
+# Local bundled Playwright browser build output
+playwright-browsers/
