@@ -36,5 +36,5 @@
     "electron": "^44.2.0",
     "wait-on": "^9.1.0"
   },
-  "packageManager": "pnpm@10"
+  "packageManager": "pnpm@10.34.5"
 }
