@@ -18,8 +18,39 @@ const isDev = process.env.NODE_ENV === "development";
 
 let mainWindow = null;
 let rotator = null;
+let manager = null;
+let managerInitPromise = null;
+let managerInitError = null;
 
-const manager = new AccountManager();
+async function initializeManager() {
+  if (manager) return manager;
+  if (managerInitPromise) return managerInitPromise;
+
+  managerInitPromise = (async () => {
+    const dataRoot = app.getPath("userData");
+    process.env.BOTWATCHER_DATA_DIR = dataRoot;
+
+    const instance = new AccountManager({
+      databaseFile: path.join(dataRoot, "botwatcher.db"),
+    });
+
+    await instance.load();
+
+    manager = instance;
+    managerInitError = null;
+
+    return manager;
+  })().catch((error) => {
+    managerInitError = error;
+    throw error;
+  });
+
+  return managerInitPromise;
+}
+
+async function getManager() {
+  return initializeManager();
+}
 const notifier = new TelegramNotifier();
 const replySessions = new Map(); // accountId -> MarketplaceSession aktif buat reply manual
 
@@ -31,7 +62,7 @@ let rotationState = {
 };
 
 function broadcastStatus() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!mainWindow || mainWindow.isDestroyed() || !manager) return;
   mainWindow.webContents.send("accounts:update", manager.getAllStatuses());
 }
 
@@ -104,7 +135,8 @@ function createRotator() {
     broadcastStatus();
 
     if (loggedIn && unreadCount > 0) {
-      const account = manager.getAccount(accountId);
+      const activeManager = await getManager();
+  const account = activeManager.getAccount(accountId);
       notifier.notifyUnread(account?.name ?? accountId, unreadCount);
     }
   });
@@ -120,9 +152,15 @@ function createRotator() {
 
 // --- IPC handlers dipanggil dari renderer (GUI) ---
 
-ipcMain.handle("accounts:getAll", () => manager.getAllStatuses());
+ipcMain.handle("accounts:getAll", async () => {
+  const activeManager = await getManager();
+  return activeManager.getAllStatuses();
+});
+
 ipcMain.handle("accounts:add", async (_event, { accountId, name, city }) => {
-  await manager.addAccount({
+  const activeManager = await getManager();
+
+  await activeManager.addAccount({
     accountId,
     name,
     city,
@@ -130,7 +168,7 @@ ipcMain.handle("accounts:add", async (_event, { accountId, name, city }) => {
 
   broadcastStatus();
 
-  return manager.getAllStatuses();
+  return activeManager.getAllStatuses();
 });
 ipcMain.handle("engine:getStatus", () => ({
   running: Boolean(rotator?.running),
@@ -138,7 +176,7 @@ ipcMain.handle("engine:getStatus", () => ({
 ipcMain.handle("rotation:getState", () => rotationState);
 
 ipcMain.handle("engine:start", async () => {
-  if (!manager.loaded) await manager.load();
+  const activeManager = await getManager();
 
   if (rotator?.running) {
     return {
@@ -148,7 +186,7 @@ ipcMain.handle("engine:start", async () => {
     };
   }
 
-  const enabledAccounts = manager.getEnabledAccounts();
+  const enabledAccounts = activeManager.getEnabledAccounts();
 
   if (enabledAccounts.length === 0) {
     broadcastLog("Bot tidak dapat dimulai: tidak ada akun yang aktif.", "warn");
@@ -185,25 +223,32 @@ ipcMain.handle("engine:stop", async () => {
 });
 
 ipcMain.handle("accounts:remove", async (_event, accountId) => {
-  await manager.removeAccount(accountId);
+  const activeManager = await getManager();
+
+  await activeManager.removeAccount(accountId);
 
   broadcastStatus();
 
-  return manager.getAllStatuses();
+  return activeManager.getAllStatuses();
 });
 
 // Simpan perubahan nama/kota (dipanggil dari kartu akun yang di-klik-edit).
 ipcMain.handle("accounts:update", async (_event, { accountId, updates }) => {
-  await manager.updateAccount(accountId, updates);
+  const activeManager = await getManager();
+
+  await activeManager.updateAccount(accountId, updates);
+
   broadcastStatus();
-  return manager.getAllStatuses();
+
+  return activeManager.getAllStatuses();
 });
 
 
 ipcMain.handle(
   "accounts:setProxy",
   async (_event, accountId, proxy) => {
-    const status = await manager.setProxy(
+    const activeManager = await getManager();
+    const status = await activeManager.setProxy(
       accountId,
       proxy,
     );
@@ -217,7 +262,8 @@ ipcMain.handle(
 ipcMain.handle(
   "accounts:removeProxy",
   async (_event, accountId) => {
-    const status = await manager.removeProxy(
+    const activeManager = await getManager();
+    const status = await activeManager.removeProxy(
       accountId,
     );
 
@@ -230,9 +276,7 @@ ipcMain.handle(
 ipcMain.handle(
   "accounts:importProxyCsv",
   async () => {
-    if (!manager.loaded) {
-      await manager.load();
-    }
+    const activeManager = await getManager();
 
     const result = await dialog.showOpenDialog(
       mainWindow,
@@ -264,7 +308,7 @@ ipcMain.handle(
     );
 
     const parsed = parseProxyCsv(text);
-    const imported = await manager.importProxyRows(
+    const imported = await activeManager.importProxyRows(
       parsed.rows,
     );
 
@@ -301,7 +345,7 @@ ipcMain.handle("accounts:openReply", async (_event, accountId) => {
 
   const session = new MarketplaceSession({
     accountId,
-    proxy: manager.getProxy(accountId),
+    proxy: activeManager.getProxy(accountId),
   });
   session.on("log", (message, level) =>
     broadcastLog(`[balas:${accountId}] ${message}`, level),
@@ -327,6 +371,24 @@ function createWindow() {
     },
   });
 
+  mainWindow.webContents.on("did-finish-load", () => {
+    if (manager) {
+      broadcastStatus();
+      broadcastLog(
+        `Aplikasi siap. Database: ${path.join(app.getPath("userData"), "botwatcher.db")}`,
+        "info",
+      );
+      broadcastEngineStatus(Boolean(rotator?.running));
+    }
+
+    if (managerInitError) {
+      broadcastLog(
+        `Gagal memuat Account Manager: ${managerInitError.message}`,
+        "error",
+      );
+    }
+  });
+
   if (isDev) {
     mainWindow.loadURL("http://localhost:5173");
     mainWindow.webContents.openDevTools();
@@ -338,16 +400,11 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  createWindow();
-
   try {
-    await manager.load();
-    broadcastStatus();
-    broadcastLog("Aplikasi siap. Bot belum dimulai.", "info");
-    broadcastEngineStatus(false);
-  } catch (err) {
-    broadcastLog(`Gagal memuat accounts.json: ${err.message}`, "error");
-  }
+    await initializeManager();
+  } catch {}
+
+  createWindow();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
