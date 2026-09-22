@@ -50,7 +50,7 @@ jobs:
           pnpm exec playwright install chromium
 
       - name: Build Windows EXE
-        run: pnpm dlx electron-builder@26.15.7 --win nsis portable --x64
+        run: npx --yes electron-builder@26.15.7 --win nsis portable --x64
 
       - name: Show build output
         shell: pwsh
