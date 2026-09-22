@@ -73,20 +73,28 @@ jobs:
       - name: Smoke test packaged Windows EXE
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path release -Filter "*Portable*.exe" |
+          $exe = Get-ChildItem -Path release\win-unpacked -Filter "BotWatcherDashboard.exe" |
             Select-Object -First 1
 
           if (-not $exe) {
-            Write-Error "Portable Windows EXE tidak ditemukan."
+            Write-Error "Executable Electron hasil unpack tidak ditemukan."
             exit 1
           }
 
           Write-Host "Menjalankan smoke test: $($exe.FullName)"
-          & $exe.FullName --smoke-test-account-manager
 
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Packaged AccountManager smoke test gagal dengan exit code $LASTEXITCODE."
-            exit $LASTEXITCODE
+          $process = Start-Process `
+            -FilePath $exe.FullName `
+            -ArgumentList "--smoke-test-account-manager" `
+            -Wait `
+            -PassThru `
+            -WindowStyle Hidden
+
+          Write-Host "Smoke test exit code: $($process.ExitCode)"
+
+          if ($process.ExitCode -ne 0) {
+            Write-Error "Packaged AccountManager smoke test gagal dengan exit code $($process.ExitCode)."
+            exit $process.ExitCode
           }
 
           Write-Host "Packaged AccountManager smoke test passed."
