@@ -1,6 +1,6 @@
 {
   "name": "botwatcher-dashboard",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Desktop app Electron + React + Playwright untuk memantau Obrolan yang perlu dijawab Facebook Marketplace.",
   "main": "electron/main.mjs",
   "type": "module",
@@ -15,7 +15,9 @@
     "build:ui": "cd ui-design && pnpm build",
     "migrate:accounts": "node scripts/migrate-accounts.js",
     "db:check": "node scripts/check-db.js",
-    "import:proxies": "node scripts/import-proxies.js"
+    "import:proxies": "node scripts/import-proxies.js",
+    "build:win": "pnpm run build:ui && pnpm run build:playwright-browsers && pnpm dlx electron-builder@26.16.1 --win nsis portable --x64",
+    "build:playwright-browsers": "cross-env PLAYWRIGHT_BROWSERS_PATH=./playwright-browsers pnpm exec playwright install chromium"
   },
   "keywords": [
     "electron",
@@ -33,5 +35,6 @@
     "cross-env": "^10.1.0",
     "electron": "^44.2.0",
     "wait-on": "^9.1.0"
-  }
+  },
+  "packageManager": "pnpm@10"
 }
