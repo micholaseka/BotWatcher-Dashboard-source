@@ -40,6 +40,16 @@ jobs:
       - name: Build React UI
         run: pnpm run build:ui
 
+      - name: Verify Electron UI asset paths
+        shell: pwsh
+        run: |
+          $html = Get-Content -Raw ui-design\dist\index.html
+          if ($html -notmatch 'src="./assets/') {
+            Write-Error "Vite production assets are not relative. Electron file:// packaging would produce a blank screen."
+            exit 1
+          }
+          Write-Host "Electron UI asset path check passed."
+
       - name: Install bundled Playwright Chromium
         shell: pwsh
         run: |
