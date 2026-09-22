@@ -14,7 +14,7 @@ import { MarketplaceSession } from "../src/marketplace/session.js";
 import { TelegramNotifier } from "../src/notifications/telegram.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const isDev = process.env.NODE_ENV === "development";
+const isDev = !app.isPackaged;
 
 let mainWindow = null;
 let rotator = null;
