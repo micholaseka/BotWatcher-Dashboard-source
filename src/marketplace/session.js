@@ -12,6 +12,22 @@ import path from "path";
 import { EventEmitter } from "events";
 import { ENGINE_MODE, getSessionConfig } from "../config/engine.config.js";
 
+function toPlaywrightProxy(proxy) {
+  if (!proxy?.server) {
+    return undefined;
+  }
+
+  return {
+    server: proxy.server,
+    ...(proxy.username
+      ? { username: proxy.username }
+      : {}),
+    ...(proxy.password
+      ? { password: proxy.password }
+      : {}),
+  };
+}
+
 export class MarketplaceSession extends EventEmitter {
   /**
    * @param {Object} opts
@@ -154,6 +170,7 @@ export class MarketplaceSession extends EventEmitter {
       {
         executablePath: this.config.executablePath,
         headless: false,
+        proxy: toPlaywrightProxy(this.proxy),
         viewport: null,
         args: [
           `--profile-directory=${this.accountId}`,
