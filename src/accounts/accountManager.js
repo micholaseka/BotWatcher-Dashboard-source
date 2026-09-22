@@ -247,7 +247,10 @@ export class AccountManager extends EventEmitter {
       accountId: normalizedId,
       name: normalizedName,
       city: normalizedCity,
-      enabled: false,
+      enabled: true,
+      proxyConfigured: false,
+      proxyServer: null,
+      proxyUsername: null,
     };
 
     this.accounts.push(account);
