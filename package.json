@@ -14,7 +14,12 @@
     "gui": "concurrently \"pnpm run gui:ui\" \"pnpm run gui:electron\"",
     "build:ui": "cd ui-design && pnpm build"
   },
-  "keywords": ["electron", "react", "playwright", "facebook-marketplace"],
+  "keywords": [
+    "electron",
+    "react",
+    "playwright",
+    "facebook-marketplace"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
