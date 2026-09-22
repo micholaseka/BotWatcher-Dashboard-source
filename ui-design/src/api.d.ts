@@ -63,16 +63,6 @@ interface Window {
       callback: (statuses: AccountStatusData[]) => void,
     ) => () => void;
 
-    setAccountEnabled: (
-      accountId: string,
-      enabled: boolean,
-    ) => Promise<{
-      account_id: string;
-      name: string;
-      city: string;
-      enabled: boolean;
-    }>;
-
     getEngineStatus: () => Promise<EngineStatus>;
     startEngine: () => Promise<{
       running: boolean;
