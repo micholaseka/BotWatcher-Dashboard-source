@@ -9,11 +9,15 @@ import { deleteDevSession } from "../storage/sessionStorage.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
 
-export const DEFAULT_DATABASE_FILE = path.join(
-  PROJECT_ROOT,
-  "storage",
-  "botwatcher.db",
-);
+export function getDefaultDatabaseFile() {
+  const dataRoot =
+    process.env.BOTWATCHER_DATA_DIR || PROJECT_ROOT;
+
+  return path.join(
+    dataRoot,
+    "botwatcher.db",
+  );
+}
 
 const VALID_STATUSES = new Set([
   "idle",
@@ -71,7 +75,7 @@ function mapStatus(account, row) {
 }
 
 export class AccountManager extends EventEmitter {
-  constructor({ databaseFile = DEFAULT_DATABASE_FILE } = {}) {
+  constructor({ databaseFile = getDefaultDatabaseFile() } = {}) {
     super();
 
     this.databaseFile = databaseFile;
