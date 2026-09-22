@@ -57,7 +57,7 @@ async function getManager() {
 
 async function runAccountManagerSmokeTest() {
   const activeManager = await initializeManager();
-  const accountId = \`smoke-\${Date.now()}\`;
+  const accountId = `smoke-${Date.now()}`;
 
   try {
     const created = await activeManager.addAccount({
@@ -84,7 +84,7 @@ async function runAccountManagerSmokeTest() {
     }
 
     console.log(
-      \`[smoke] AccountManager OK: \${activeManager.databaseFile}\`,
+      `[smoke] AccountManager OK: ${activeManager.databaseFile}`,
     );
   } finally {
     try {
