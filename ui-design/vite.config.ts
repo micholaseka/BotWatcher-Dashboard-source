@@ -7,6 +7,9 @@ import path from "node:path";
 // dibuang karena butuh file ./.figma/make/site.json yang gak ikut kebawa
 // pas di-export, dan memang gak relevan buat project ini).
 export default defineConfig({
+  // Electron production membuka UI lewat file://, bukan HTTP.
+  // Relative base memastikan asset JS/CSS di dist/ tetap ditemukan.
+  base: "./",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
