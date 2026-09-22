@@ -58,62 +58,58 @@ async function getManager() {
 async function runAccountManagerSmokeTest() {
   const activeManager = await initializeManager();
   const accountId = `smoke-${Date.now()}`;
+  const databaseFile = activeManager.databaseFile;
+
+  const created = await activeManager.addAccount({
+    accountId,
+    name: "Windows Packaged Smoke Test",
+    city: "Kediri",
+  });
+
+  if (
+    created.accountId !== accountId ||
+    created.enabled !== true
+  ) {
+    activeManager.close();
+    throw new Error(
+      "AccountManager smoke test gagal membuat akun aktif.",
+    );
+  }
+
+  const persisted = activeManager.getAccount(accountId);
+
+  if (!persisted) {
+    activeManager.close();
+    throw new Error(
+      "AccountManager smoke test gagal membaca akun yang baru dibuat.",
+    );
+  }
+
+  activeManager.close();
+
+  const reopenedManager = new AccountManager({
+    databaseFile,
+  });
 
   try {
-    const created = await activeManager.addAccount({
-      accountId,
-      name: "Windows Packaged Smoke Test",
-      city: "Kediri",
-    });
+    await reopenedManager.load();
+
+    const reloaded = reopenedManager.getAccount(accountId);
+
+    if (!reloaded) {
+      throw new Error(
+        "AccountManager smoke test gagal membaca akun setelah database dibuka ulang.",
+      );
+    }
 
     if (
-      created.accountId !== accountId ||
-      created.enabled !== true
+      reloaded.name !== "Windows Packaged Smoke Test" ||
+      reloaded.city !== "Kediri" ||
+      reloaded.enabled !== true
     ) {
       throw new Error(
-        "AccountManager smoke test gagal membuat akun aktif.",
+        "AccountManager smoke test menemukan data akun yang tidak sesuai setelah reload.",
       );
-    }
-
-    const persisted = activeManager.getAccount(accountId);
-
-    if (!persisted) {
-      throw new Error(
-        "AccountManager smoke test gagal membaca akun yang baru dibuat.",
-      );
-    }
-
-    const databaseFile = activeManager.databaseFile;
-    activeManager.close();
-
-    const reopenedManager = new AccountManager({
-      databaseFile,
-    });
-
-    try {
-      await reopenedManager.load();
-
-      const reloaded = reopenedManager.getAccount(accountId);
-
-      if (!reloaded) {
-        throw new Error(
-          "AccountManager smoke test gagal membaca akun setelah database dibuka ulang.",
-        );
-      }
-
-      if (reloaded.name !== "Windows Packaged Smoke Test") {
-        throw new Error(
-          "AccountManager smoke test menemukan data akun yang tidak sesuai setelah reload.",
-        );
-      }
-    } finally {
-      try {
-        if (reopenedManager.getAccount(accountId)) {
-          await reopenedManager.removeAccount(accountId);
-        }
-      } finally {
-        reopenedManager.close();
-      }
     }
 
     console.log(
@@ -121,11 +117,11 @@ async function runAccountManagerSmokeTest() {
     );
   } finally {
     try {
-      if (activeManager.getAccount(accountId)) {
-        await activeManager.removeAccount(accountId);
+      if (reopenedManager.getAccount(accountId)) {
+        await reopenedManager.removeAccount(accountId);
       }
     } finally {
-      activeManager.close();
+      reopenedManager.close();
     }
   }
 }
