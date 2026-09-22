@@ -16,7 +16,7 @@
     "migrate:accounts": "node scripts/migrate-accounts.js",
     "db:check": "node scripts/check-db.js",
     "import:proxies": "node scripts/import-proxies.js",
-    "build:win": "pnpm run build:ui && pnpm run build:playwright-browsers && pnpm dlx electron-builder@26.15.7 --win nsis portable --x64",
+    "build:win": "pnpm run build:ui && pnpm run build:playwright-browsers && npx --yes electron-builder@26.15.7 --win nsis portable --x64",
     "build:playwright-browsers": "cross-env PLAYWRIGHT_BROWSERS_PATH=./playwright-browsers pnpm exec playwright install chromium"
   },
   "keywords": [
