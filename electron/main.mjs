@@ -144,7 +144,7 @@ ipcMain.handle("engine:start", async () => {
     return {
       running: true,
       started: false,
-      reason: "AREADY_RUNING",
+      reason: "ALREADY_RUNNING",
     };
   }
 
@@ -199,6 +199,89 @@ ipcMain.handle("accounts:update", async (_event, { accountId, updates }) => {
   return manager.getAllStatuses();
 });
 
+
+ipcMain.handle(
+  "accounts:setProxy",
+  async (_event, accountId, proxy) => {
+    const status = await manager.setProxy(
+      accountId,
+      proxy,
+    );
+
+    broadcastStatus();
+
+    return status;
+  },
+);
+
+ipcMain.handle(
+  "accounts:removeProxy",
+  async (_event, accountId) => {
+    const status = await manager.removeProxy(
+      accountId,
+    );
+
+    broadcastStatus();
+
+    return status;
+  },
+);
+
+ipcMain.handle(
+  "accounts:importProxyCsv",
+  async () => {
+    if (!manager.loaded) {
+      await manager.load();
+    }
+
+    const result = await dialog.showOpenDialog(
+      mainWindow,
+      {
+        title: "Import Proxy CSV",
+        properties: ["openFile"],
+        filters: [
+          {
+            name: "CSV",
+            extensions: ["csv"],
+          },
+        ],
+      },
+    );
+
+    if (
+      result.canceled ||
+      result.filePaths.length === 0
+    ) {
+      return {
+        cancelled: true,
+      };
+    }
+
+    const filePath = result.filePaths[0];
+    const text = await fs.readFile(
+      filePath,
+      "utf8",
+    );
+
+    const parsed = parseProxyCsv(text);
+    const imported = await manager.importProxyRows(
+      parsed.rows,
+    );
+
+    broadcastStatus();
+
+    return {
+      cancelled: false,
+      fileName: path.basename(filePath),
+      totalRows:
+        parsed.rows.length +
+        parsed.errors.length,
+      parseErrors: parsed.errors,
+      ...imported,
+    };
+  },
+);
+
 // Tombol "Balas Sekarang" -- buka (atau fokus ulang) sesi browser buat
 // akun itu, terpisah dari siklus rotasi otomatis, biar user bisa balas
 // manual.
@@ -215,62 +298,6 @@ ipcMain.handle("accounts:openReply", async (_event, accountId) => {
       replySessions.delete(accountId);
     }
   }
-
-  ipcMain.handle("accounts:importProxyCsv", async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: "Import Proxy CSV",
-      properties: ["openFile"],
-      filters: [
-        {
-          name: "CSV",
-          extensions: ["csv"],
-        },
-      ],
-    });
-
-    if (result.canceled || result.filePaths.length === 0) {
-      return {
-        cancelled: true,
-      };
-    }
-
-    const filePath = result.filePaths[0];
-
-    const text = await fs.readFile(filePath, "utf8");
-
-    const parsed = parseProxyCsv(text);
-
-    const imported = await manager.importProxyRows(parsed.rows);
-
-    broadcastStatus();
-
-    return {
-      cancelled: false,
-      fileName: path.basename(filePath),
-
-      totalRows: parsed.rows.length,
-
-      parseErrors: parsed.errors,
-
-      ...imported,
-    };
-  });
-
-  ipcMain.handle("accounts:setProxy", async (_event, accountId, proxy) => {
-    const status = await manager.setProxy(accountId, proxy);
-
-    broadcastStatus();
-
-    return status;
-  });
-
-  ipcMain.handle("accounts:removeProxy", async (_event, accountId) => {
-    const status = await manager.removeProxy(accountId);
-
-    broadcastStatus();
-
-    return status;
-  });
 
   const session = new MarketplaceSession({
     accountId,
