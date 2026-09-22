@@ -1,23 +1,19 @@
-// src/accounts/accountManager.js
-//
-// Mengelola daftar akun dari accounts.json dan status runtime tiap akun.
-// AccountManager sengaja tidak membuka browser; tugasnya hanya:
-//   1. load + validasi konfigurasi akun
-//   2. menyediakan daftar akun aktif
-//   3. tracking status runtime per akun
-//
-// Struktur ini mengikuti alur:
-// AccountManager -> MarketplaceSession -> InboxMonitor
-
-import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { EventEmitter } from "events";
 
+import { createDatabase } from "../database/scripts/database.js";
+import { AccountRepository } from "./accountRepository.js";
+import { deleteDevSession } from "../storage/sessionStorage.js";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
 
-export const DEFAULT_ACCOUNTS_FILE = path.join(PROJECT_ROOT, "accounts.json");
+export const DEFAULT_DATABASE_FILE = path.join(
+  PROJECT_ROOT,
+  "storage",
+  "botwatcher.db",
+);
 
 const VALID_STATUSES = new Set([
   "idle",
@@ -28,148 +24,90 @@ const VALID_STATUSES = new Set([
   "error",
 ]);
 
+function mapAccount(row) {
+  return {
+    accountId: row.account_id,
+    name: row.name,
+    city: row.city ?? "",
+    enabled: Boolean(row.enabled),
+  };
+}
+
+function mapStatus(account, row) {
+  return {
+    accountId: account.accountId,
+    name: account.name,
+    city: account.city,
+    enabled: account.enabled,
+
+    state: row?.state ?? "idle",
+
+    loggedIn:
+      row?.logged_in === null || row?.logged_in === undefined
+        ? null
+        : Boolean(row.logged_in),
+
+    unreadCount:
+      row?.unread_count === null || row?.unread_count === undefined
+        ? null
+        : Number(row.unread_count),
+
+    lastCheckedAt: row?.last_checked_at ? new Date(row.last_checked_at) : null,
+
+    error: row?.last_error ?? null,
+  };
+}
+
 export class AccountManager extends EventEmitter {
-  constructor({ accountsFile = DEFAULT_ACCOUNTS_FILE } = {}) {
+  constructor({ databaseFile = DEFAULT_DATABASE_FILE } = {}) {
     super();
-    this.accountsFile = accountsFile;
+
+    this.databaseFile = databaseFile;
+
+    this.db = null;
+    this.repository = null;
+
     this.accounts = [];
     this.status = new Map();
+
     this.loaded = false;
   }
 
-  async updateAccount(accountId, patch = {}) {
-    const index = this.accounts.findIndex(
-      (item) => item.accountId === accountId,
-    );
-    if (index === -1) {
-      throw new Error(`Akun "${accountId}" tidak terdaftar.`);
-    }
-
-    const current = this.accounts[index];
-    const name =
-      patch.name !== undefined ? String(patch.name).trim() : current.name;
-    const city =
-      patch.city !== undefined ? String(patch.city).trim() : current.city;
-
-    if (!name) {
-      throw new Error("Nama akun tidak boleh kosong.");
-    }
-
-    const updated = Object.freeze({ ...current, name, city });
-    const nextAccounts = [...this.accounts];
-    nextAccounts[index] = updated;
-    this.accounts = nextAccounts;
-
-    await this._persist();
-    this.updateStatus(accountId, { name, city });
-    this.emit("account_updated", updated);
-
-    return { ...updated };
-  }
-
-  async _persist() {
-    const payload = {
-      accounts: this.accounts.map(({ accountId, name, city, enabled }) => ({
-        accountId,
-        name,
-        city,
-        enabled,
-      })),
-    };
-    await fs.writeFile(
-      this.accountsFile,
-      JSON.stringify(payload, null, 2) + "\n",
-      "utf8",
-    );
-  }
-
   async load() {
-    const raw = await fs.readFile(this.accountsFile, "utf8");
-
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (err) {
-      throw new Error(`accounts.json bukan JSON yang valid: ${err.message}`);
+    if (this.loaded) {
+      return this.getAccounts();
     }
 
-    this.accounts = this._validate(parsed);
+    this.db = createDatabase(this.databaseFile);
+    this.repository = new AccountRepository(this.db);
 
-    for (const account of this.accounts) {
-      if (!this.status.has(account.accountId)) {
-        this.status.set(account.accountId, {
-          accountId: account.accountId,
-          name: account.name,
-          city: account.city,
-          enabled: account.enabled,
-          state: "idle",
-          loggedIn: null,
-          unreadCount: null,
-          lastCheckedAt: null,
-          error: null,
-        });
-      }
-    }
+    const rows = this.repository.listAccountsWithStatus();
 
-    // Hapus status akun yang sudah dihapus dari accounts.json.
-    const validIds = new Set(this.accounts.map((account) => account.accountId));
-    for (const accountId of this.status.keys()) {
-      if (!validIds.has(accountId)) this.status.delete(accountId);
+    this.accounts = rows.map(mapAccount);
+
+    this.status.clear();
+
+    for (const row of rows) {
+      const account = mapAccount(row);
+
+      this.repository.ensureStatus(account.accountId);
+
+      const savedStatus = this.repository.getStatus(account.accountId);
+
+      this.status.set(account.accountId, mapStatus(account, savedStatus));
     }
 
     this.loaded = true;
+
     this.emit("loaded", this.getAccounts());
+
     return this.getAccounts();
   }
 
-  _validate(data) {
-    if (!data || typeof data !== "object" || Array.isArray(data)) {
-      throw new Error(
-        'Root accounts.json harus berupa object dengan field "accounts".',
-      );
-    }
-
-    if (!Array.isArray(data.accounts)) {
-      throw new Error('Field "accounts" harus berupa array.');
-    }
-
-    const seen = new Set();
-
-    return data.accounts.map((account, index) => {
-      if (!account || typeof account !== "object" || Array.isArray(account)) {
-        throw new Error(`accounts[${index}] harus berupa object.`);
-      }
-
-      const accountId = String(account.accountId ?? "").trim();
-      const name = String(account.name ?? accountId).trim();
-      const enabled = account.enabled !== false;
-      const city = String(account.city ?? "").trim();
-
-      if (!accountId) {
-        throw new Error(`accounts[${index}].accountId wajib diisi.`);
-      }
-
-      if (seen.has(accountId)) {
-        throw new Error(`Duplikat accountId ditemukan: "${accountId}".`);
-      }
-
-      if (!name) {
-        throw new Error(`accounts[${index}].name tidak boleh kosong.`);
-      }
-
-      seen.add(accountId);
-
-      return Object.freeze({
-        accountId,
-        name,
-        city,
-        enabled,
-      });
-    });
-  }
-
   getAccounts() {
-    return this.accounts.map((account) => ({ ...account }));
+    return this.accounts.map((account) => ({
+      ...account,
+    }));
   }
 
   getEnabledAccounts() {
@@ -178,56 +116,143 @@ export class AccountManager extends EventEmitter {
 
   getAccount(accountId) {
     const account = this.accounts.find((item) => item.accountId === accountId);
-    return account ? { ...account } : null;
+
+    return account
+      ? {
+          ...account,
+        }
+      : null;
   }
 
   getStatus(accountId) {
-    const item = this.status.get(accountId);
-    return item ? { ...item } : null;
+    const status = this.status.get(accountId);
+
+    return status
+      ? {
+          ...status,
+        }
+      : null;
   }
 
   getAllStatuses() {
     return this.accounts.map((account) => this.getStatus(account.accountId));
   }
 
+  async updateAccount(accountId, patch = {}) {
+    const current = this.getAccount(accountId);
+
+    if (!current) {
+      throw new Error(`Akun "${accountId}" tidak terdaftar.`);
+    }
+
+    const name =
+      patch.name !== undefined ? String(patch.name).trim() : current.name;
+
+    const city =
+      patch.city !== undefined ? String(patch.city).trim() : current.city;
+
+    if (!name) {
+      throw new Error("Nama akun tidak boleh kosong.");
+    }
+
+    this.repository.updateAccount(accountId, {
+      name,
+      city,
+    });
+
+    const index = this.accounts.findIndex(
+      (item) => item.accountId === accountId,
+    );
+
+    this.accounts[index] = {
+      ...this.accounts[index],
+      name,
+      city,
+    };
+
+    const oldStatus = this.status.get(accountId);
+
+    if (oldStatus) {
+      this.status.set(accountId, {
+        ...oldStatus,
+        name,
+        city,
+      });
+    }
+
+    const updated = this.getAccount(accountId);
+
+    this.emit("account_updated", updated);
+
+    this.emit("status", this.getStatus(accountId));
+
+    return updated;
+  }
+
+  async removeAccount(accountId) {
+    const account = this.getAccount(accountId);
+
+    if (!account) {
+      throw new Error(`Akun "${accountId}" tidak ditemukan.`);
+    }
+
+    this.repository.deleteAccount(accountId);
+
+    this.accounts = this.accounts.filter(
+      (item) => item.accountId !== accountId,
+    );
+
+    this.status.delete(accountId);
+
+    // Hapus session Playwright dev.
+    await deleteDevSession(accountId);
+
+    this.emit("account_removed", {
+      ...account,
+    });
+
+    return {
+      ...account,
+    };
+  }
+
   updateStatus(accountId, patch = {}) {
     const account = this.getAccount(accountId);
+
     if (!account) {
       throw new Error(`Akun "${accountId}" tidak terdaftar.`);
     }
 
-    const current = this.status.get(accountId) ?? {
-      accountId,
-      name: account.name,
-      city: account.city,
-      enabled: account.enabled,
-      state: "idle",
-      loggedIn: null,
-      unreadCount: null,
-      lastCheckedAt: null,
-      error: null,
-    };
-
     if (patch.state !== undefined && !VALID_STATUSES.has(patch.state)) {
       throw new Error(
-        `Status tidak valid: "${patch.state}". Gunakan: ${[
-          ...VALID_STATUSES,
-        ].join(", ")}.`,
+        `Status tidak valid: "${patch.state}". ` +
+          `Gunakan: ${[...VALID_STATUSES].join(", ")}.`,
       );
     }
+
+    const current = this.status.get(accountId) ?? mapStatus(account, null);
 
     const next = {
       ...current,
       ...patch,
+
       accountId,
       name: account.name,
       city: account.city,
       enabled: account.enabled,
     };
 
+    this.repository.updateStatus(accountId, next);
+
     this.status.set(accountId, next);
-    this.emit("status", { ...next });
-    return { ...next };
+
+    this.emit("status", {
+      ...next,
+    });
+
+    return {
+      ...next,
+    };
   }
 
   resetStatuses() {
@@ -240,5 +265,15 @@ export class AccountManager extends EventEmitter {
         error: null,
       });
     }
+  }
+
+  close() {
+    if (this.repository) {
+      this.repository.close();
+    }
+
+    this.repository = null;
+    this.db = null;
+    this.loaded = false;
   }
 }

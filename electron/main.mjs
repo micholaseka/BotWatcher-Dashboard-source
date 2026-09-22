@@ -21,7 +21,12 @@ const manager = new AccountManager();
 const notifier = new TelegramNotifier();
 const replySessions = new Map(); // accountId -> MarketplaceSession aktif buat reply manual
 
-let rotationState = { round: 0, currentBatch: [], checkedSoFar: 0, totalAccounts: 0 };
+let rotationState = {
+  round: 0,
+  currentBatch: [],
+  checkedSoFar: 0,
+  totalAccounts: 0,
+};
 
 function broadcastStatus() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -65,12 +70,22 @@ function createRotator() {
   });
 
   r.on("batch_started", ({ batch, checkedSoFar, totalAccounts }) => {
-    rotationState = { ...rotationState, currentBatch: batch, checkedSoFar, totalAccounts };
+    rotationState = {
+      ...rotationState,
+      currentBatch: batch,
+      checkedSoFar,
+      totalAccounts,
+    };
     broadcastRotation();
   });
 
   r.on("batch_finished", ({ checkedSoFar, totalAccounts }) => {
-    rotationState = { ...rotationState, currentBatch: [], checkedSoFar, totalAccounts };
+    rotationState = {
+      ...rotationState,
+      currentBatch: [],
+      checkedSoFar,
+      totalAccounts,
+    };
     broadcastRotation();
   });
 
@@ -102,7 +117,9 @@ function createRotator() {
 // --- IPC handlers dipanggil dari renderer (GUI) ---
 
 ipcMain.handle("accounts:getAll", () => manager.getAllStatuses());
-ipcMain.handle("engine:getStatus", () => ({ running: Boolean(rotator?.running) }));
+ipcMain.handle("engine:getStatus", () => ({
+  running: Boolean(rotator?.running),
+}));
 ipcMain.handle("rotation:getState", () => rotationState);
 
 ipcMain.handle("engine:start", async () => {
@@ -128,11 +145,10 @@ ipcMain.handle("engine:stop", async () => {
 });
 
 ipcMain.handle("accounts:remove", async (_event, accountId) => {
-  const account = manager.getAccount(accountId);
-  if (!account) throw new Error(`Akun "${accountId}" tidak ditemukan.`);
+  await manager.removeAccount(accountId);
 
-  manager.updateStatus(accountId, { state: "stopped", enabled: false });
   broadcastStatus();
+
   return manager.getAllStatuses();
 });
 

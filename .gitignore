@@ -13,6 +13,8 @@ accounts.local.json
 storage/sessions/*.json
 storage/profiles/
 storage/user-data/
+storage/*.db
+storage/*.db-*  
 
 # Logs
 *.log
@@ -28,7 +30,7 @@ ui-design/dist/
 
 # OS / editor
 .DS_Store
-Thumbs.db
+Thumbs.db``
 .vscode/
 .idea/
 

@@ -12,7 +12,9 @@
     "gui:ui": "cd ui-design && pnpm dev",
     "gui:electron": "wait-on http://localhost:5173 && cross-env NODE_ENV=development electron electron/main.mjs",
     "gui": "concurrently \"pnpm run gui:ui\" \"pnpm run gui:electron\"",
-    "build:ui": "cd ui-design && pnpm build"
+    "build:ui": "cd ui-design && pnpm build",
+    "migrate:accounts": "node scripts/migrate-accounts.js",
+    "db:check": "node scripts/check-db.js"
   },
   "keywords": [
     "electron",
