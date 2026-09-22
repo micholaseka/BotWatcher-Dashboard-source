@@ -42,7 +42,18 @@ export const engineConfig = {
 };
 
 export function getSessionConfig() {
-  return ENGINE_MODE === "chrome-portable"
-    ? engineConfig.chromePortable
-    : engineConfig.dev;
+  if (ENGINE_MODE === "chrome-portable") {
+    return engineConfig.chromePortable;
+  }
+
+  const dataRoot =
+    process.env.BOTWATCHER_DATA_DIR || PROJECT_ROOT;
+
+  return {
+    ...engineConfig.dev,
+    sessionDirectory: path.join(
+      dataRoot,
+      "sessions",
+    ),
+  };
 }
