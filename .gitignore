@@ -37,3 +37,7 @@ Thumbs.db``
 # Temporary files
 *.tmp
 *.temp
+
+# Proxy credential files
+proxies.csv
+*.proxy.csv
