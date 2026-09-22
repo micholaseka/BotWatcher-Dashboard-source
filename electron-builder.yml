@@ -1,0 +1,35 @@
+appId: com.micholaseka.botwatcherdashboard
+productName: BotWatcher Dashboard
+executableName: BotWatcherDashboard
+
+directories:
+  output: release
+
+files:
+  - electron/**/*
+  - src/**/*
+  - ui-design/dist/**/*
+  - package.json
+
+extraResources:
+  - from: playwright-browsers
+    to: playwright-browsers
+    filter:
+      - "**/*"
+
+asar: true
+
+win:
+  target:
+    - nsis
+    - portable
+  artifactName: "BotWatcher-Dashboard-${version}-${arch}.${ext}"
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: "BotWatcher-Dashboard-Setup-${version}-${arch}.${ext}"
+
+portable:
+  artifactName: "BotWatcher-Dashboard-Portable-${version}-${arch}.${ext}"
