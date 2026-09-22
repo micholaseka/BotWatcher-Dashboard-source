@@ -30,6 +30,12 @@ function mapAccount(row) {
     name: row.name,
     city: row.city ?? "",
     enabled: Boolean(row.enabled),
+
+    proxyConfigured: Boolean(row.proxy_configured),
+
+    proxyServer: row.proxy_server ?? null,
+
+    proxyUsername: row.proxy_username ?? null,
   };
 }
 
@@ -39,6 +45,12 @@ function mapStatus(account, row) {
     name: account.name,
     city: account.city,
     enabled: account.enabled,
+
+    proxyConfigured: account.proxyConfigured ?? false,
+
+    proxyServer: account.proxyServer ?? null,
+
+    proxyUsername: account.proxyUsername ?? null,
 
     state: row?.state ?? "idle",
 
@@ -80,6 +92,15 @@ export class AccountManager extends EventEmitter {
 
     this.db = createDatabase(this.databaseFile);
     this.repository = new AccountRepository(this.db);
+    this.db
+      .prepare(
+        `
+        UPDATE accounts
+        SET enabled = 1
+        WHERE enabled != 1
+`,
+      )
+      .run();
 
     const rows = this.repository.listAccountsWithStatus();
 
@@ -111,7 +132,7 @@ export class AccountManager extends EventEmitter {
   }
 
   getEnabledAccounts() {
-    return this.getAccounts().filter((account) => account.enabled);
+    return this.getAccounts();
   }
 
   getAccount(accountId) {
@@ -189,6 +210,61 @@ export class AccountManager extends EventEmitter {
     return updated;
   }
 
+  async addAccount({ accountId, name, city = "" } = {}) {
+    if (!this.loaded || !this.repository) {
+      throw new Error("AccountManager belum dimuat.");
+    }
+
+    const normalizedId = String(accountId ?? "").trim();
+    const normalizedName = String(name ?? "").trim();
+    const normalizedCity = String(city ?? "").trim();
+
+    if (!normalizedId) {
+      throw new Error("Account ID tidak boleh kosong.");
+    }
+
+    if (!/^[A-Za-z0-9_-]+$/.test(normalizedId)) {
+      throw new Error(
+        "Account ID hanya boleh berisi huruf, angka, underscore (_) dan tanda minus (-).",
+      );
+    }
+
+    if (!normalizedName) {
+      throw new Error("Nama akun tidak boleh kosong.");
+    }
+
+    if (this.getAccount(normalizedId)) {
+      throw new Error(`Account ID "${normalizedId}" sudah digunakan.`);
+    }
+
+    this.repository.createAccount({
+      accountId: normalizedId,
+      name: normalizedName,
+      city: normalizedCity,
+    });
+
+    const account = {
+      accountId: normalizedId,
+      name: normalizedName,
+      city: normalizedCity,
+      enabled: false,
+    };
+
+    this.accounts.push(account);
+
+    const status = mapStatus(account, null);
+
+    this.status.set(normalizedId, status);
+
+    this.emit("account_added", status);
+
+    this.emit("status", status);
+
+    return {
+      ...status,
+    };
+  }
+
   async removeAccount(accountId) {
     const account = this.getAccount(accountId);
 
@@ -252,6 +328,127 @@ export class AccountManager extends EventEmitter {
 
     return {
       ...next,
+    };
+  }
+
+  getProxy(accountId) {
+    const account = this.getAccount(accountId);
+
+    if (!account) {
+      throw new Error(`Akun "${accountId}" tidak ditemukan.`);
+    }
+
+    return this.repository.getProxy(accountId);
+  }
+
+  async setProxy(accountId, proxy) {
+    const server = String(proxy.server ?? "").trim();
+    const username = String(proxy.username ?? "").trim();
+    const password = String(proxy.password ?? "");
+
+    if (!server) {
+      throw new Error("Proxy server wajib diisi.");
+    }
+
+    const updatedProxy = this.repository.setProxy(accountId, {
+      server,
+      username,
+      password,
+    });
+
+    const account = this.getAccount(accountId);
+
+    const currentStatus =
+      this.status.get(accountId) ?? mapStatus(account, null);
+
+    const updatedStatus = {
+      ...currentStatus,
+      proxyConfigured: true,
+      proxyServer: updatedProxy.server,
+      proxyUsername: updatedProxy.username,
+    };
+
+    this.status.set(accountId, updatedStatus);
+
+    this.emit("status", updatedStatus);
+
+    return updatedStatus;
+  }
+
+  async removeProxy(accountId) {
+    const account = this.getAccount(accountId);
+
+    if (!account) {
+      throw new Error(`Akun "${accountId}" tidak ditemukan.`);
+    }
+
+    this.repository.deleteProxy(accountId);
+
+    const currentStatus =
+      this.status.get(accountId) ?? mapStatus(account, null);
+
+    const updatedStatus = {
+      ...currentStatus,
+      proxyConfigured: false,
+      proxyServer: null,
+      proxyUsername: null,
+    };
+
+    this.status.set(accountId, updatedStatus);
+
+    this.emit("status", updatedStatus);
+
+    return updatedStatus;
+  }
+
+  async importProxyRows(rows) {
+    if (!this.loaded) {
+      await this.load();
+    }
+
+    const validRows = [];
+    const errors = [];
+
+    for (const row of rows) {
+      const account = this.getAccount(row.accountId);
+
+      if (!account) {
+        errors.push({
+          line: null,
+          accountId: row.accountId,
+          message: "Account ID tidak ditemukan.",
+        });
+        continue;
+      }
+
+      validRows.push(row);
+    }
+
+    if (validRows.length > 0) {
+      this.repository.bulkUpsertProxies(validRows);
+
+      for (const row of validRows) {
+        const account = this.getAccount(row.accountId);
+
+        const currentStatus =
+          this.status.get(row.accountId) ?? mapStatus(account, null);
+
+        this.status.set(row.accountId, {
+          ...currentStatus,
+
+          proxyConfigured: true,
+          proxyServer: row.server,
+          proxyUsername: row.username ?? null,
+        });
+      }
+    }
+
+    return {
+      total: rows.length,
+      imported: validRows.length,
+      failed: errors.length,
+      errors,
+      accounts: this.getAllStatuses(),
     };
   }
 

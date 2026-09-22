@@ -49,6 +49,7 @@ export class AccountRotator extends EventEmitter {
       maxBatchSize = 10,
       delayBetweenBatchesMs = 5000,
       roundIntervalMs = 15 * 60 * 1000,
+      getProxy = () => null,
     } = {},
   ) {
     super();
@@ -57,6 +58,7 @@ export class AccountRotator extends EventEmitter {
     this.maxBatchSize = maxBatchSize;
     this.delayBetweenBatchesMs = delayBetweenBatchesMs;
     this.roundIntervalMs = roundIntervalMs;
+    this.getProxy = getProxy;
     this.running = false;
   }
 
@@ -101,7 +103,9 @@ export class AccountRotator extends EventEmitter {
         `Cek batch (${batch.length} akun): ${batch.join(", ")}`,
         "info",
       );
-      await Promise.all(batch.map((accountId) => this._checkOneAccount(accountId)));
+      await Promise.all(
+        batch.map((accountId) => this._checkOneAccount(accountId)),
+      );
 
       if (i < shuffled.length && this.running) {
         await this._sleep(this.delayBetweenBatchesMs);
@@ -110,13 +114,25 @@ export class AccountRotator extends EventEmitter {
   }
 
   async _checkOneAccount(accountId) {
-    const session = new MarketplaceSession({ accountId });
+    const proxy = this.getProxy(accountId);
+
+    const session = new MarketplaceSession({
+      accountId,
+      proxy,
+    });
+
     try {
       this.emit("log", `[${accountId}] Membuka sesi...`, "info");
+
       await session.open();
 
+      // lanjut kode lama...
       if (!session.isLoggedIn) {
-        this.emit("log", `[${accountId}] Belum login / sesi gak ada. Dilewati.`, "warn");
+        this.emit(
+          "log",
+          `[${accountId}] Belum login / sesi gak ada. Dilewati.`,
+          "warn",
+        );
         this.emit("account_checked", {
           accountId,
           loggedIn: false,

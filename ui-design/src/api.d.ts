@@ -12,7 +12,27 @@ interface AccountStatusData {
   unreadCount: number | null;
   lastCheckedAt: string | null;
   error: string | null;
+  proxyConfigured: boolean;
+  proxyServer: string | null;
+  proxyUsername: string | null;
 }
+
+type ProxyImportError = {
+  line: number | null;
+  accountId: string;
+  message: string;
+};
+
+type ProxyImportResult = {
+  cancelled: boolean;
+  fileName?: string;
+  totalRows?: number;
+  imported?: number;
+  failed?: number;
+  parseErrors?: ProxyImportError[];
+  errors?: ProxyImportError[];
+  accounts?: AccountStatusData[];
+};
 
 interface EngineStatus {
   running: boolean;
@@ -34,12 +54,31 @@ interface RotationState {
 interface Window {
   api: {
     getAccounts: () => Promise<AccountStatusData[]>;
+    addAccount: (account: {
+      accountId: string;
+      name: string;
+      city?: string;
+    }) => Promise<AccountStatusData[]>;
     onAccountsUpdate: (
       callback: (statuses: AccountStatusData[]) => void,
     ) => () => void;
 
+    setAccountEnabled: (
+      accountId: string,
+      enabled: boolean,
+    ) => Promise<{
+      account_id: string;
+      name: string;
+      city: string;
+      enabled: boolean;
+    }>;
+
     getEngineStatus: () => Promise<EngineStatus>;
-    startEngine: () => Promise<EngineStatus>;
+    startEngine: () => Promise<{
+      running: boolean;
+      started: boolean;
+      reason?: string;
+    }>;
     stopEngine: () => Promise<EngineStatus>;
     onEngineStatus: (callback: (status: EngineStatus) => void) => () => void;
     onEngineLog: (callback: (entry: EngineLogEntry) => void) => () => void;
@@ -56,5 +95,17 @@ interface Window {
 
     getRotationState: () => Promise<RotationState>;
     onRotationUpdate: (callback: (state: RotationState) => void) => () => void;
+
+    setAccountProxy: (
+      accountId: string,
+      proxy: {
+        server: string;
+        username?: string;
+        password?: string;
+      },
+    ) => Promise<AccountStatusData>;
+
+    importProxyCsv: () => Promise<ProxyImportResult>;
+    removeAccountProxy: (accountId: string) => Promise<AccountStatusData>;
   };
 }

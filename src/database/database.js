@@ -21,6 +21,19 @@ export function createDatabase(dbPath) {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS account_proxy (
+  account_id TEXT PRIMARY KEY,
+  server TEXT NOT NULL,
+  username TEXT NOT NULL DEFAULT '',
+  password TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  FOREIGN KEY (account_id)
+    REFERENCES accounts(account_id)
+    ON DELETE CASCADE
+);
+
     CREATE TABLE IF NOT EXISTS account_status (
       account_id TEXT PRIMARY KEY,
       state TEXT NOT NULL DEFAULT 'idle',

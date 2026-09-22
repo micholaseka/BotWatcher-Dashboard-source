@@ -19,13 +19,16 @@ export class MarketplaceSession extends EventEmitter {
    *                                    sesi (mode dev) atau nama profil Chrome
    *                                    (mode chrome-portable, misal "Profile 2").
    */
-  constructor({ accountId = "default" } = {}) {
+  constructor({ accountId = "default", proxy = null } = {}) {
     super();
+
     this.accountId = accountId;
-    this.mode = ENGINE_MODE; // "dev" | "chrome-portable"
+    this.proxy = proxy;
+
+    this.mode = ENGINE_MODE;
     this.config = getSessionConfig();
 
-    this.browser = null; // hanya dipakai di mode dev
+    this.browser = null;
     this.context = null;
     this.page = null;
     this.isLoggedIn = false;
@@ -56,9 +59,12 @@ export class MarketplaceSession extends EventEmitter {
       // Sesi sudah ada -> langsung ke Marketplace, jangan biarkan
       // halaman nongkrong di about:blank.
       this.emit("log", "Sesi ditemukan, membuka Marketplace...", "info");
-      await this.page.goto("https://www.facebook.com/marketplace/you/dashboard/", {
-        waitUntil: "domcontentloaded",
-      });
+      await this.page.goto(
+        "https://www.facebook.com/marketplace/you/dashboard/",
+        {
+          waitUntil: "domcontentloaded",
+        },
+      );
     } else {
       this.emit(
         "log",
@@ -111,6 +117,17 @@ export class MarketplaceSession extends EventEmitter {
 
     this.browser = await chromium.launch({
       headless: false,
+
+      ...(this.proxy
+        ? {
+            proxy: {
+              server: this.proxy.server,
+              ...(this.proxy.username ? { username: this.proxy.username } : {}),
+              ...(this.proxy.password ? { password: this.proxy.password } : {}),
+            },
+          }
+        : {}),
+
       args: [
         "--start-maximized",
         "--no-first-run",

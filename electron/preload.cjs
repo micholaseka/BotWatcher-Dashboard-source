@@ -30,12 +30,25 @@ contextBridge.exposeInMainWorld("api", {
     return () => ipcRenderer.removeListener("engine:log", listener);
   },
 
+  addAccount: (account) => ipcRenderer.invoke("accounts:add", account),
   removeAccount: (accountId) =>
     ipcRenderer.invoke("accounts:remove", accountId),
+
   updateAccount: (accountId, updates) =>
-    ipcRenderer.invoke("accounts:update", { accountId, updates }),
+    ipcRenderer.invoke("accounts:update", {
+      accountId,
+      updates,
+    }),
+
+  importProxyCsv: () => ipcRenderer.invoke("accounts:importProxyCsv"),
+
   openReplySession: (accountId) =>
     ipcRenderer.invoke("accounts:openReply", accountId),
+  setAccountProxy: (accountId, proxy) =>
+    ipcRenderer.invoke("accounts:setProxy", accountId, proxy),
+
+  removeAccountProxy: (accountId) =>
+    ipcRenderer.invoke("accounts:removeProxy", accountId),
 
   getRotationState: () => ipcRenderer.invoke("rotation:getState"),
   onRotationUpdate: (callback) => {

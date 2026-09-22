@@ -3,7 +3,9 @@
 // Electron main process: React UI <-> AccountRotator.
 // React tidak menjalankan Playwright langsung.
 
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import fs from "fs/promises";
+import { parseProxyCsv } from "../src/proxy/proxyCsv.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { AccountManager } from "../src/accounts/accountManager.js";
@@ -60,6 +62,8 @@ function createRotator() {
     maxBatchSize: 10,
     delayBetweenBatchesMs: 5000,
     roundIntervalMs: 15 * 60 * 1000,
+
+    getProxy: (accountId) => manager.getProxy(accountId),
   });
 
   r.on("log", (message, level) => broadcastLog(message, level));
@@ -117,6 +121,17 @@ function createRotator() {
 // --- IPC handlers dipanggil dari renderer (GUI) ---
 
 ipcMain.handle("accounts:getAll", () => manager.getAllStatuses());
+ipcMain.handle("accounts:add", async (_event, { accountId, name, city }) => {
+  await manager.addAccount({
+    accountId,
+    name,
+    city,
+  });
+
+  broadcastStatus();
+
+  return manager.getAllStatuses();
+});
 ipcMain.handle("engine:getStatus", () => ({
   running: Boolean(rotator?.running),
 }));
@@ -124,18 +139,43 @@ ipcMain.handle("rotation:getState", () => rotationState);
 
 ipcMain.handle("engine:start", async () => {
   if (!manager.loaded) await manager.load();
-  if (rotator?.running) return { running: true };
+
+  if (rotator?.running) {
+    return {
+      running: true,
+      started: false,
+      reason: "AREADY_RUNING",
+    };
+  }
+
+  const enabledAccounts = manager.getEnabledAccounts();
+
+  if (enabledAccounts.length === 0) {
+    broadcastLog("Bot tidak dapat dimulai: tidak ada akun yang aktif.", "warn");
+
+    broadcastEngineStatus(false);
+
+    return {
+      running: false,
+      started: false,
+      reason: "NO_ACCOUNTS",
+    };
+  }
 
   rotator = createRotator();
-  broadcastLog(
-    `Rotasi dimulai untuk ${manager.getEnabledAccounts().length} akun aktif.`,
-    "info",
-  );
+
+  broadcastLog(`Rotasi dimulai untuk ${enabledAccounts.length} akun .`, "info");
+
   broadcastEngineStatus(true);
 
-  rotator.start().finally(() => broadcastEngineStatus(false));
+  rotator.start().finally(() => {
+    broadcastEngineStatus(false);
+  });
 
-  return { running: true };
+  return {
+    running: true,
+    started: true,
+  };
 });
 
 ipcMain.handle("engine:stop", async () => {
@@ -176,7 +216,66 @@ ipcMain.handle("accounts:openReply", async (_event, accountId) => {
     }
   }
 
-  const session = new MarketplaceSession({ accountId });
+  ipcMain.handle("accounts:importProxyCsv", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Import Proxy CSV",
+      properties: ["openFile"],
+      filters: [
+        {
+          name: "CSV",
+          extensions: ["csv"],
+        },
+      ],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return {
+        cancelled: true,
+      };
+    }
+
+    const filePath = result.filePaths[0];
+
+    const text = await fs.readFile(filePath, "utf8");
+
+    const parsed = parseProxyCsv(text);
+
+    const imported = await manager.importProxyRows(parsed.rows);
+
+    broadcastStatus();
+
+    return {
+      cancelled: false,
+      fileName: path.basename(filePath),
+
+      totalRows: parsed.rows.length,
+
+      parseErrors: parsed.errors,
+
+      ...imported,
+    };
+  });
+
+  ipcMain.handle("accounts:setProxy", async (_event, accountId, proxy) => {
+    const status = await manager.setProxy(accountId, proxy);
+
+    broadcastStatus();
+
+    return status;
+  });
+
+  ipcMain.handle("accounts:removeProxy", async (_event, accountId) => {
+    const status = await manager.removeProxy(accountId);
+
+    broadcastStatus();
+
+    return status;
+  });
+
+  const session = new MarketplaceSession({
+    accountId,
+    proxy: manager.getProxy(accountId),
+  });
   session.on("log", (message, level) =>
     broadcastLog(`[balas:${accountId}] ${message}`, level),
   );
