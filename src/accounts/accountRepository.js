@@ -1,4 +1,4 @@
-import { createDatabase } from "../database/scripts/database.js";
+import { createDatabase } from "../database/database.js";
 
 export class AccountRepository {
   constructor(db) {

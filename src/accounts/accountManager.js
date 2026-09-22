@@ -2,7 +2,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { EventEmitter } from "events";
 
-import { createDatabase } from "../database/scripts/database.js";
+import { createDatabase } from "../database/database.js";
 import { AccountRepository } from "./accountRepository.js";
 import { deleteDevSession } from "../storage/sessionStorage.js";
 
