@@ -135,8 +135,7 @@ function createRotator() {
     broadcastStatus();
 
     if (loggedIn && unreadCount > 0) {
-      const activeManager = await getManager();
-  const account = activeManager.getAccount(accountId);
+      const account = manager.getAccount(accountId);
       notifier.notifyUnread(account?.name ?? accountId, unreadCount);
     }
   });
@@ -330,7 +329,8 @@ ipcMain.handle(
 // akun itu, terpisah dari siklus rotasi otomatis, biar user bisa balas
 // manual.
 ipcMain.handle("accounts:openReply", async (_event, accountId) => {
-  const account = manager.getAccount(accountId);
+  const activeManager = await getManager();
+  const account = activeManager.getAccount(accountId);
   if (!account) throw new Error(`Akun "${accountId}" tidak ditemukan.`);
 
   const existing = replySessions.get(accountId);
