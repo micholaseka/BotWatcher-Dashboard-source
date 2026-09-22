@@ -508,5 +508,9 @@ app.on("window-all-closed", async () => {
     await session.close().catch(() => {});
   }
   replySessions.clear();
+  if (manager) {
+    manager.close();
+    manager = null;
+  }
   if (process.platform !== "darwin") app.quit();
 });
