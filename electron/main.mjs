@@ -152,22 +152,43 @@ function createRotator() {
 // --- IPC handlers dipanggil dari renderer (GUI) ---
 
 ipcMain.handle("accounts:getAll", async () => {
-  const activeManager = await getManager();
-  return activeManager.getAllStatuses();
+  try {
+    const activeManager = await getManager();
+    return activeManager.getAllStatuses();
+  } catch (error) {
+    broadcastLog(
+      `Gagal memuat Account Manager: ${error.message}`,
+      "error",
+    );
+    throw error;
+  }
 });
 
 ipcMain.handle("accounts:add", async (_event, { accountId, name, city }) => {
-  const activeManager = await getManager();
+  try {
+    const activeManager = await getManager();
 
-  await activeManager.addAccount({
-    accountId,
-    name,
-    city,
-  });
+    await activeManager.addAccount({
+      accountId,
+      name,
+      city,
+    });
 
-  broadcastStatus();
+    broadcastStatus();
 
-  return activeManager.getAllStatuses();
+    broadcastLog(
+      `Akun "${accountId}" berhasil ditambahkan.`,
+      "success",
+    );
+
+    return activeManager.getAllStatuses();
+  } catch (error) {
+    broadcastLog(
+      `Gagal menambahkan akun "${accountId}": ${error.message}`,
+      "error",
+    );
+    throw error;
+  }
 });
 ipcMain.handle("engine:getStatus", () => ({
   running: Boolean(rotator?.running),
@@ -370,6 +391,16 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+
+  mainWindow.webContents.on(
+    "did-fail-load",
+    (_event, errorCode, errorDescription, validatedURL) => {
+      broadcastLog(
+        `UI gagal dimuat (${errorCode}): ${errorDescription} — ${validatedURL}`,
+        "error",
+      );
+    },
+  );
 
   mainWindow.webContents.on("did-finish-load", () => {
     if (manager) {
