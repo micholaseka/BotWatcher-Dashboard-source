@@ -1,0 +1,72 @@
+name: Windows Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag, contoh v1.0.0"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install UI dependencies
+        working-directory: ui-design
+        run: pnpm install --frozen-lockfile
+
+      - name: Build React UI
+        run: pnpm run build:ui
+
+      - name: Install bundled Playwright Chromium
+        shell: pwsh
+        run: |
+          if (Test-Path playwright-browsers) {
+            Remove-Item -Recurse -Force playwright-browsers
+          }
+          $env:PLAYWRIGHT_BROWSERS_PATH = "$env:GITHUB_WORKSPACE\playwright-browsers"
+          pnpm exec playwright install chromium
+
+      - name: Build Windows EXE
+        run: pnpm dlx electron-builder@26.16.1 --win nsis portable --x64
+
+      - name: Show build output
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path release -File |
+            Select-Object Name, Length
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          name: BotWatcher Dashboard ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          generate_release_notes: true
+          files: |
+            release/*.exe
+            release/*.yml
+            release/*.blockmap
