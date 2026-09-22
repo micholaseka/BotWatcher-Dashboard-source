@@ -83,8 +83,41 @@ async function runAccountManagerSmokeTest() {
       );
     }
 
+    const databaseFile = activeManager.databaseFile;
+    activeManager.close();
+
+    const reopenedManager = new AccountManager({
+      databaseFile,
+    });
+
+    try {
+      await reopenedManager.load();
+
+      const reloaded = reopenedManager.getAccount(accountId);
+
+      if (!reloaded) {
+        throw new Error(
+          "AccountManager smoke test gagal membaca akun setelah database dibuka ulang.",
+        );
+      }
+
+      if (reloaded.name !== "Windows Packaged Smoke Test") {
+        throw new Error(
+          "AccountManager smoke test menemukan data akun yang tidak sesuai setelah reload.",
+        );
+      }
+    } finally {
+      try {
+        if (reopenedManager.getAccount(accountId)) {
+          await reopenedManager.removeAccount(accountId);
+        }
+      } finally {
+        reopenedManager.close();
+      }
+    }
+
     console.log(
-      `[smoke] AccountManager OK: ${activeManager.databaseFile}`,
+      `[smoke] AccountManager OK: ${databaseFile}`,
     );
   } finally {
     try {
