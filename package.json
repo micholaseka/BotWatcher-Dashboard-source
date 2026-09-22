@@ -14,7 +14,8 @@
     "gui": "concurrently \"pnpm run gui:ui\" \"pnpm run gui:electron\"",
     "build:ui": "cd ui-design && pnpm build",
     "migrate:accounts": "node scripts/migrate-accounts.js",
-    "db:check": "node scripts/check-db.js"
+    "db:check": "node scripts/check-db.js",
+    "import:proxies": "node scripts/import-proxies.js"
   },
   "keywords": [
     "electron",
