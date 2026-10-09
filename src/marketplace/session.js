@@ -32,22 +32,6 @@ async function getChromium() {
   return chromium;
 }
 
-function toPlaywrightProxy(proxy) {
-  if (!proxy?.server) {
-    return undefined;
-  }
-
-  return {
-    server: proxy.server,
-    ...(proxy.username
-      ? { username: proxy.username }
-      : {}),
-    ...(proxy.password
-      ? { password: proxy.password }
-      : {}),
-  };
-}
-
 export class MarketplaceSession extends EventEmitter {
   /**
    * @param {Object} opts
@@ -55,11 +39,10 @@ export class MarketplaceSession extends EventEmitter {
    *                                    sesi (mode dev) atau nama profil Chrome
    *                                    (mode chrome-portable, misal "Profile 2").
    */
-  constructor({ accountId = "default", proxy = null } = {}) {
+  constructor({ accountId = "default" } = {}) {
     super();
 
     this.accountId = accountId;
-    this.proxy = proxy;
 
     this.mode = ENGINE_MODE;
     this.config = getSessionConfig();
@@ -155,17 +138,6 @@ export class MarketplaceSession extends EventEmitter {
 
     this.browser = await playwrightChromium.launch({
       headless: false,
-
-      ...(this.proxy
-        ? {
-            proxy: {
-              server: this.proxy.server,
-              ...(this.proxy.username ? { username: this.proxy.username } : {}),
-              ...(this.proxy.password ? { password: this.proxy.password } : {}),
-            },
-          }
-        : {}),
-
       args: [
         "--start-maximized",
         "--no-first-run",
@@ -194,7 +166,6 @@ export class MarketplaceSession extends EventEmitter {
       {
         executablePath: this.config.executablePath,
         headless: false,
-        proxy: toPlaywrightProxy(this.proxy),
         viewport: null,
         args: [
           `--profile-directory=${this.accountId}`,

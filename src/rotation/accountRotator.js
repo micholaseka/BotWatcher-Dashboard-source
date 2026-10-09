@@ -49,7 +49,6 @@ export class AccountRotator extends EventEmitter {
       maxBatchSize = 10,
       delayBetweenBatchesMs = 5000,
       roundIntervalMs = 15 * 60 * 1000,
-      getProxy = () => null,
     } = {},
   ) {
     super();
@@ -58,7 +57,6 @@ export class AccountRotator extends EventEmitter {
     this.maxBatchSize = maxBatchSize;
     this.delayBetweenBatchesMs = delayBetweenBatchesMs;
     this.roundIntervalMs = roundIntervalMs;
-    this.getProxy = getProxy;
     this.running = false;
   }
 
@@ -114,12 +112,7 @@ export class AccountRotator extends EventEmitter {
   }
 
   async _checkOneAccount(accountId) {
-    const proxy = this.getProxy(accountId);
-
-    const session = new MarketplaceSession({
-      accountId,
-      proxy,
-    });
+    const session = new MarketplaceSession({ accountId });
 
     try {
       this.emit("log", `[${accountId}] Membuka sesi...`, "info");

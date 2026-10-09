@@ -69,23 +69,12 @@ export class AccountRepository {
         s.logged_in,
         s.unread_count,
         s.last_checked_at,
-        s.last_error,
-
-        CASE
-          WHEN p.account_id IS NOT NULL THEN 1
-          ELSE 0
-        END AS proxy_configured,
-
-        p.server AS proxy_server,
-        p.username AS proxy_username
+        s.last_error
 
       FROM accounts a
 
       LEFT JOIN account_status s
         ON s.account_id = a.account_id
-
-      LEFT JOIN account_proxy p
-        ON p.account_id = a.account_id
 
       ORDER BY a.id
     `,
@@ -206,107 +195,6 @@ export class AccountRepository {
       `,
       )
       .get(accountId);
-  }
-
-  getProxy(accountId) {
-    return (
-      this.db
-        .prepare(
-          `
-        SELECT
-          account_id,
-          server,
-          username,
-          password
-        FROM account_proxy
-        WHERE account_id = ?
-      `,
-        )
-        .get(accountId) ?? null
-    );
-  }
-
-  setProxy(accountId, { server, username = "", password = "" }) {
-    const account = this.getAccount(accountId);
-
-    if (!account) {
-      throw new Error(`Akun "${accountId}" tidak ditemukan.`);
-    }
-
-    this.db
-      .prepare(
-        `
-      INSERT INTO account_proxy (
-        account_id,
-        server,
-        username,
-        password
-      )
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(account_id)
-      DO UPDATE SET
-        server = excluded.server,
-        username = excluded.username,
-        password = excluded.password,
-        updated_at = CURRENT_TIMESTAMP
-    `,
-      )
-      .run(accountId, server, username, password);
-
-    return this.getProxy(accountId);
-  }
-
-  deleteProxy(accountId) {
-    this.db
-      .prepare(
-        `
-      DELETE FROM account_proxy
-      WHERE account_id = ?
-    `,
-      )
-      .run(accountId);
-  }
-
-  bulkUpsertProxies(rows) {
-    if (!Array.isArray(rows) || rows.length === 0) {
-      return 0;
-    }
-
-    const statement = this.db.prepare(`
-    INSERT INTO account_proxy (
-      account_id,
-      server,
-      username,
-      password
-    )
-    VALUES (?, ?, ?, ?)
-    ON CONFLICT(account_id)
-    DO UPDATE SET
-      server = excluded.server,
-      username = excluded.username,
-      password = excluded.password,
-      updated_at = CURRENT_TIMESTAMP
-  `);
-
-    this.db.exec("BEGIN IMMEDIATE");
-
-    try {
-      for (const row of rows) {
-        statement.run(
-          row.accountId,
-          row.server,
-          row.username ?? "",
-          row.password ?? "",
-        );
-      }
-
-      this.db.exec("COMMIT");
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
-
-    return rows.length;
   }
 
   close() {

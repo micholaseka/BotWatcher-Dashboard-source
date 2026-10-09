@@ -40,15 +40,8 @@ contextBridge.exposeInMainWorld("api", {
       updates,
     }),
 
-  importProxyCsv: () => ipcRenderer.invoke("accounts:importProxyCsv"),
-
   openReplySession: (accountId) =>
     ipcRenderer.invoke("accounts:openReply", accountId),
-  setAccountProxy: (accountId, proxy) =>
-    ipcRenderer.invoke("accounts:setProxy", accountId, proxy),
-
-  removeAccountProxy: (accountId) =>
-    ipcRenderer.invoke("accounts:removeProxy", accountId),
 
   getRotationState: () => ipcRenderer.invoke("rotation:getState"),
   onRotationUpdate: (callback) => {

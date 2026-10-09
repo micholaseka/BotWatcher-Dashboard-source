@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import ProxyModal from "./components/ProxyModal";
 type AccountStatus = "active" | "sleeping" | "new" | "error";
 type SortOrder = "unread" | "name" | "default";
 type FilterStatus = "all" | AccountStatus;
@@ -15,9 +14,6 @@ function mapApiAccount(account: AccountStatusData): AccountStatusData {
     unreadCount: account.unreadCount,
     lastCheckedAt: account.lastCheckedAt,
     error: account.error,
-    proxyConfigured: account.proxyConfigured ?? false,
-    proxyServer: account.proxyServer ?? null,
-    proxyUsername: account.proxyUsername ?? null,
   };
 }
 function mapToDisplayStatus(account: AccountStatusData): AccountStatus {
@@ -297,14 +293,12 @@ function AccountCard({
   onRemove,
   onUpdate,
   onReply,
-  onProxy,
 }: {
   account: AccountStatusData;
   isChecking: boolean;
   onRemove: (id: string) => void;
   onUpdate: (id: string, updates: { name?: string; city?: string }) => void;
   onReply: (id: string) => void;
-  onProxy: (account: AccountStatusData) => void;
 }) {
   const display = mapToDisplayStatus(account);
   const unreadCount = account.unreadCount ?? 0;
@@ -512,23 +506,6 @@ function AccountCard({
       <div className="px-3 pb-3 pt-1 space-y-2">
         {" "}
         <button
-          onClick={() => onProxy(account)}
-          className="w-full py-1.5 rounded text-[10px] font-semibold uppercase tracking-wider"
-          style={{
-            background: account.proxyConfigured
-              ? "rgba(34,197,94,0.08)"
-              : "rgba(100,116,139,0.08)",
-            border: account.proxyConfigured
-              ? "1px solid rgba(34,197,94,0.25)"
-              : "1px solid rgba(100,116,139,0.2)",
-            color: account.proxyConfigured ? "#22c55e" : "#64748b",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          {" "}
-          {account.proxyConfigured ? "Proxy Terpasang" : "Atur Proxy"}{" "}
-        </button>{" "}
-        <button
           onClick={handleReply}
           disabled={replyBusy}
           className="w-full py-1.5 rounded text-[10px] font-semibold uppercase tracking-wider disabled:opacity-40"
@@ -592,10 +569,6 @@ export default function App() {
   const [engineBusy, setEngineBusy] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [showAddAccount, setShowAddAccount] = useState(false);
-  const [proxyAccount, setProxyAccount] = useState<AccountStatusData | null>(
-    null,
-  );
-  const [proxyImportBusy, setProxyImportBusy] = useState(false);
   const [rotation, setRotation] = useState<RotationState>({
     round: 0,
     currentBatch: [],
@@ -641,42 +614,6 @@ export default function App() {
           `[error] ${err instanceof Error ? err.message : String(err)}`,
         ]);
       });
-  };
-  const importProxyCsv = async () => {
-    setProxyImportBusy(true);
-    try {
-      const result = await window.api.importProxyCsv();
-      if (result.cancelled) {
-        return;
-      }
-      if (result.accounts) {
-        replaceAccounts(result.accounts);
-      }
-      const parseErrorCount = result.parseErrors?.length ?? 0;
-      const importErrorCount = result.errors?.length ?? 0;
-      const totalErrors = parseErrorCount + importErrorCount;
-      setLogs((prev) => [
-        ...prev,
-        `[success] Import proxy selesai: ${result.imported ?? 0} berhasil, ${totalErrors} gagal.`,
-      ]);
-      const allErrors = [
-        ...(result.parseErrors ?? []),
-        ...(result.errors ?? []),
-      ];
-      allErrors.slice(0, 10).forEach((error) => {
-        setLogs((prev) => [
-          ...prev,
-          `[warn] ${error.accountId || "CSV"}${error.line ? ` (baris ${error.line})` : ""}: ${error.message}`,
-        ]);
-      });
-    } catch (err) {
-      setLogs((prev) => [
-        ...prev,
-        `[error] Gagal import proxy: ${err instanceof Error ? err.message : String(err)}`,
-      ]);
-    } finally {
-      setProxyImportBusy(false);
-    }
   };
   const startBot = async () => {
     setEngineBusy(true);
@@ -904,7 +841,7 @@ export default function App() {
           {" "}
           <button
             onClick={() => setShowAddAccount(true)}
-            disabled={engineBusy || proxyImportBusy}
+            disabled={engineBusy}
             className="px-3 py-1.5 rounded text-[10px] font-semibold uppercase tracking-wider disabled:opacity-40"
             style={{
               background: "#3b82f618",
@@ -915,20 +852,6 @@ export default function App() {
           >
             {" "}
             + Profil{" "}
-          </button>{" "}
-          <button
-            onClick={importProxyCsv}
-            disabled={engineBusy || proxyImportBusy}
-            className="px-3 py-1.5 rounded text-[10px] font-semibold uppercase tracking-wider disabled:opacity-40"
-            style={{
-              background: "#8b5cf618",
-              border: "1px solid #8b5cf640",
-              color: "#a78bfa",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            {" "}
-            {proxyImportBusy ? "Import..." : "Import Proxy"}{" "}
           </button>{" "}
           <button
             disabled={engineBusy || engineRunning}
@@ -1100,7 +1023,6 @@ export default function App() {
                 onRemove={removeAccount}
                 onUpdate={updateAccount}
                 onReply={replyNow}
-                onProxy={setProxyAccount}
               />
             ))}{" "}
           </div>
@@ -1161,23 +1083,6 @@ export default function App() {
         <AddAccountModal
           onClose={() => setShowAddAccount(false)}
           onCreated={replaceAccounts}
-        />
-      )}{" "}
-      {/* PROXY MODAL */}{" "}
-      {proxyAccount && (
-        <ProxyModal
-          account={proxyAccount}
-          onClose={() => setProxyAccount(null)}
-          onSaved={(updated) => {
-            setAccounts((prev) =>
-              prev.map((account) =>
-                account.accountId === updated.accountId
-                  ? { ...account, ...updated }
-                  : account,
-              ),
-            );
-            setProxyAccount(null);
-          }}
         />
       )}{" "}
     </div>

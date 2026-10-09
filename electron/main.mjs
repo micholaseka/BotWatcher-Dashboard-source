@@ -3,9 +3,7 @@
 // Electron main process: React UI <-> AccountRotator.
 // React tidak menjalankan Playwright langsung.
 
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
-import fs from "fs/promises";
-import { parseProxyCsv } from "../src/proxy/proxyCsv.js";
+import { app, BrowserWindow, ipcMain } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
 import { AccountManager } from "../src/accounts/accountManager.js";
@@ -66,14 +64,9 @@ async function runAccountManagerSmokeTest() {
     city: "Kediri",
   });
 
-  if (
-    created.accountId !== accountId ||
-    created.enabled !== true
-  ) {
+  if (created.accountId !== accountId || created.enabled !== true) {
     activeManager.close();
-    throw new Error(
-      "AccountManager smoke test gagal membuat akun aktif.",
-    );
+    throw new Error("AccountManager smoke test gagal membuat akun aktif.");
   }
 
   const persisted = activeManager.getAccount(accountId);
@@ -112,9 +105,7 @@ async function runAccountManagerSmokeTest() {
       );
     }
 
-    console.log(
-      `[smoke] AccountManager OK: ${databaseFile}`,
-    );
+    console.log(`[smoke] AccountManager OK: ${databaseFile}`);
   } finally {
     try {
       if (reopenedManager.getAccount(accountId)) {
@@ -168,8 +159,6 @@ function createRotator() {
     maxBatchSize: 10,
     delayBetweenBatchesMs: 5000,
     roundIntervalMs: 15 * 60 * 1000,
-
-    getProxy: (accountId) => manager.getProxy(accountId),
   });
 
   r.on("log", (message, level) => broadcastLog(message, level));
@@ -231,10 +220,7 @@ ipcMain.handle("accounts:getAll", async () => {
     const activeManager = await getManager();
     return activeManager.getAllStatuses();
   } catch (error) {
-    broadcastLog(
-      `Gagal memuat Account Manager: ${error.message}`,
-      "error",
-    );
+    broadcastLog(`Gagal memuat Account Manager: ${error.message}`, "error");
     throw error;
   }
 });
@@ -251,10 +237,7 @@ ipcMain.handle("accounts:add", async (_event, { accountId, name, city }) => {
 
     broadcastStatus();
 
-    broadcastLog(
-      `Akun "${accountId}" berhasil ditambahkan.`,
-      "success",
-    );
+    broadcastLog(`Akun "${accountId}" berhasil ditambahkan.`, "success");
 
     return activeManager.getAllStatuses();
   } catch (error) {
@@ -338,89 +321,6 @@ ipcMain.handle("accounts:update", async (_event, { accountId, updates }) => {
   return activeManager.getAllStatuses();
 });
 
-
-ipcMain.handle(
-  "accounts:setProxy",
-  async (_event, accountId, proxy) => {
-    const activeManager = await getManager();
-    const status = await activeManager.setProxy(
-      accountId,
-      proxy,
-    );
-
-    broadcastStatus();
-
-    return status;
-  },
-);
-
-ipcMain.handle(
-  "accounts:removeProxy",
-  async (_event, accountId) => {
-    const activeManager = await getManager();
-    const status = await activeManager.removeProxy(
-      accountId,
-    );
-
-    broadcastStatus();
-
-    return status;
-  },
-);
-
-ipcMain.handle(
-  "accounts:importProxyCsv",
-  async () => {
-    const activeManager = await getManager();
-
-    const result = await dialog.showOpenDialog(
-      mainWindow,
-      {
-        title: "Import Proxy CSV",
-        properties: ["openFile"],
-        filters: [
-          {
-            name: "CSV",
-            extensions: ["csv"],
-          },
-        ],
-      },
-    );
-
-    if (
-      result.canceled ||
-      result.filePaths.length === 0
-    ) {
-      return {
-        cancelled: true,
-      };
-    }
-
-    const filePath = result.filePaths[0];
-    const text = await fs.readFile(
-      filePath,
-      "utf8",
-    );
-
-    const parsed = parseProxyCsv(text);
-    const imported = await activeManager.importProxyRows(
-      parsed.rows,
-    );
-
-    broadcastStatus();
-
-    return {
-      cancelled: false,
-      fileName: path.basename(filePath),
-      totalRows:
-        parsed.rows.length +
-        parsed.errors.length,
-      parseErrors: parsed.errors,
-      ...imported,
-    };
-  },
-);
-
 // Tombol "Balas Sekarang" -- buka (atau fokus ulang) sesi browser buat
 // akun itu, terpisah dari siklus rotasi otomatis, biar user bisa balas
 // manual.
@@ -441,7 +341,6 @@ ipcMain.handle("accounts:openReply", async (_event, accountId) => {
 
   const session = new MarketplaceSession({
     accountId,
-    proxy: activeManager.getProxy(accountId),
   });
   session.on("log", (message, level) =>
     broadcastLog(`[balas:${accountId}] ${message}`, level),
@@ -511,10 +410,7 @@ app.whenReady().then(async () => {
       await runAccountManagerSmokeTest();
       app.quit();
     } catch (error) {
-      console.error(
-        "[smoke] AccountManager smoke test gagal:",
-        error,
-      );
+      console.error("[smoke] AccountManager smoke test gagal:", error);
       app.exit(1);
     }
     return;

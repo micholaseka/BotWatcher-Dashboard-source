@@ -2,6 +2,9 @@
 
 Dashboard semi-otomatis untuk memantau & membalas pesan Facebook Marketplace.
 
+Sesi browser menggunakan koneksi jaringan langsung; pengaturan dan import
+proxy tidak tersedia.
+
 ## Struktur folder
 
 ```
