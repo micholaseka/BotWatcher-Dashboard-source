@@ -28,13 +28,15 @@ function main() {
       account_id,
       name,
       city,
+      post_count,
       enabled
     )
-    VALUES (?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(account_id)
     DO UPDATE SET
       name = excluded.name,
       city = excluded.city,
+      post_count = excluded.post_count,
       enabled = excluded.enabled,
       updated_at = CURRENT_TIMESTAMP
   `);
@@ -57,6 +59,20 @@ function main() {
       const city = String(account.city ?? "").trim();
       const enabled = account.enabled === false ? 0 : 1;
 
+      const rawPostCount = account.postCount ?? null;
+      const postCount =
+        rawPostCount === null || rawPostCount === ""
+          ? null
+          : Number(rawPostCount);
+
+      if (!Number.isInteger(postCount) && postCount !== null) {
+        throw new Error(`postCount tidak valid untuk akun "${accountId}".`);
+      }
+
+      if (postCount !== null && postCount < 0) {
+        throw new Error(`postCount tidak boleh negatif: "${accountId}".`);
+      }
+
       if (!accountId) {
         throw new Error("Ada akun tanpa accountId.");
       }
@@ -65,7 +81,7 @@ function main() {
         throw new Error(`Nama akun kosong: ${accountId}`);
       }
 
-      insertAccount.run(accountId, name, city, enabled);
+      insertAccount.run(accountId, name, city, postCount, enabled);
 
       insertStatus.run(accountId);
     }

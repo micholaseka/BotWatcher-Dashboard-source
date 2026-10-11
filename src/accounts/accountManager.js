@@ -28,11 +28,26 @@ const VALID_STATUSES = new Set([
   "error",
 ]);
 
+// Jumlah postingan diisi manual oleh user. Kosong (""/undefined/null) =
+// belum diisi -> disimpan NULL (dibedakan dari 0 yang berarti nol postingan).
+function normalizePostCount(value) {
+  if (value === undefined || value === null || value === "") return null;
+
+  const parsed = Number(value);
+
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error("Jumlah postingan harus bilangan bulat >= 0.");
+  }
+
+  return parsed;
+}
+
 function mapAccount(row) {
   return {
     accountId: row.account_id,
     name: row.name,
     city: row.city ?? "",
+    postCount: row.post_count ?? null,
     enabled: Boolean(row.enabled),
   };
 }
@@ -42,6 +57,7 @@ function mapStatus(account, row) {
     accountId: account.accountId,
     name: account.name,
     city: account.city,
+    postCount: account.postCount ?? null,
     enabled: account.enabled,
 
     state: row?.state ?? "idle",
@@ -164,6 +180,11 @@ export class AccountManager extends EventEmitter {
     const city =
       patch.city !== undefined ? String(patch.city).trim() : current.city;
 
+    const postCount =
+      patch.postCount !== undefined
+        ? normalizePostCount(patch.postCount)
+        : (current.postCount ?? null);
+
     if (!name) {
       throw new Error("Nama akun tidak boleh kosong.");
     }
@@ -171,6 +192,7 @@ export class AccountManager extends EventEmitter {
     this.repository.updateAccount(accountId, {
       name,
       city,
+      postCount,
     });
 
     const index = this.accounts.findIndex(
@@ -181,6 +203,7 @@ export class AccountManager extends EventEmitter {
       ...this.accounts[index],
       name,
       city,
+      postCount,
     };
 
     const oldStatus = this.status.get(accountId);
@@ -190,6 +213,7 @@ export class AccountManager extends EventEmitter {
         ...oldStatus,
         name,
         city,
+        postCount,
       });
     }
 
@@ -202,7 +226,7 @@ export class AccountManager extends EventEmitter {
     return updated;
   }
 
-  async addAccount({ accountId, name, city = "" } = {}) {
+  async addAccount({ accountId, name, city = "", postCount = null } = {}) {
     if (!this.loaded || !this.repository) {
       throw new Error("AccountManager belum dimuat.");
     }
@@ -229,16 +253,20 @@ export class AccountManager extends EventEmitter {
       throw new Error(`Account ID "${normalizedId}" sudah digunakan.`);
     }
 
+    const normalizedPostCount = normalizePostCount(postCount);
+
     this.repository.createAccount({
       accountId: normalizedId,
       name: normalizedName,
       city: normalizedCity,
+      postCount: normalizedPostCount,
     });
 
     const account = {
       accountId: normalizedId,
       name: normalizedName,
       city: normalizedCity,
+      postCount: normalizedPostCount,
       enabled: true,
     };
 
@@ -307,6 +335,7 @@ export class AccountManager extends EventEmitter {
       accountId,
       name: account.name,
       city: account.city,
+      postCount: account.postCount ?? null,
       enabled: account.enabled,
     };
 

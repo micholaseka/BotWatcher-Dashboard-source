@@ -5,7 +5,7 @@ export class AccountRepository {
     this.db = db;
   }
 
-  createAccount({ accountId, name, city = "" }) {
+  createAccount({ accountId, name, city = "", postCount = null }) {
     this.db.exec("BEGIN");
 
     try {
@@ -16,12 +16,13 @@ export class AccountRepository {
           account_id,
           name,
           city,
+          post_count,
           enabled
         )
-        VALUES (?, ?, ?, 1)
+        VALUES (?, ?, ?, ?, 1)
         `,
         )
-        .run(accountId, name, city);
+        .run(accountId, name, city, postCount ?? null);
 
       this.db
         .prepare(
@@ -63,6 +64,7 @@ export class AccountRepository {
         a.account_id,
         a.name,
         a.city,
+        a.post_count,
         a.enabled,
 
         COALESCE(s.state, 'idle') AS state,
@@ -97,7 +99,7 @@ export class AccountRepository {
       .get(accountId);
   }
 
-  updateAccount(accountId, { name, city }) {
+  updateAccount(accountId, { name, city, postCount }) {
     const result = this.db
       .prepare(
         `
@@ -105,11 +107,12 @@ export class AccountRepository {
         SET
           name = ?,
           city = ?,
+          post_count = ?,
           updated_at = CURRENT_TIMESTAMP
         WHERE account_id = ?
       `,
       )
-      .run(name, city, accountId);
+      .run(name, city, postCount ?? null, accountId);
 
     if (result.changes === 0) {
       throw new Error(`Akun "${accountId}" tidak ditemukan.`);

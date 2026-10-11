@@ -3,6 +3,8 @@
     {
       "accountId": "akun-001",
       "name": "Akun 001",
+      "city": "Kediri",
+      "postCount": 12,
       "enabled": true
     },
     {

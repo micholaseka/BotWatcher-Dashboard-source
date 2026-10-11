@@ -16,6 +16,7 @@ export function createDatabase(dbPath) {
       account_id TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
       city TEXT NOT NULL DEFAULT '',
+      post_count INTEGER,
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -54,6 +55,19 @@ export function createDatabase(dbPath) {
     CREATE INDEX IF NOT EXISTS idx_monitor_events_created
       ON monitor_events(created_at);
   `);
+
+  // Migrasi: kolom post_count (jumlah postingan manual) ditambahkan setelah
+  // rilis awal. DB lama sudah punya tabel accounts, dan CREATE TABLE IF NOT
+  // EXISTS TIDAK menambah kolom ke tabel yang sudah ada -- jadi butuh ALTER
+  // eksplisit, dijaga biar tidak error kalau kolomnya sudah ada.
+  const accountColumns = db
+    .prepare("PRAGMA table_info(accounts)")
+    .all()
+    .map((row) => row.name);
+
+  if (!accountColumns.includes("post_count")) {
+    db.exec("ALTER TABLE accounts ADD COLUMN post_count INTEGER;");
+  }
 
   return db;
 }
