@@ -1,62 +1,70 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Inter:wght@400;500;600&display=swap');
+/* Tema "System Telemetry" -- token dari Downloads/system-telemetry-3-DESIGN.md
+   (Neuform, Meng To). Gelap + aksen emerald, Inter untuk display,
+   JetBrains Mono untuk body copy & label teknis. */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import 'tailwindcss';
 
 html,
 body,
 #root {
   height: 100%;
-  background: #0a0d12;
+}
+
+body {
+  background: #020804;
+  color: #ffffff;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  -webkit-font-smoothing: antialiased;
 }
 
 @theme inline {
-  --color-bg-base: #0a0d12;
-  --color-bg-surface: #10141c;
-  --color-bg-card: #141820;
-  --color-bg-card-hover: #1a1f2e;
-  --color-border: #1e2436;
-  --color-border-bright: #2a3050;
-  --color-accent-green: #22c55e;
-  --color-accent-amber: #f59e0b;
-  --color-accent-blue: #3b82f6;
-  --color-accent-red: #ef4444;
-  --color-text-primary: #e2e8f0;
-  --color-text-secondary: #64748b;
-  --color-text-muted: #374151;
-  --font-mono: 'DM Mono', monospace;
-  --font-sans: 'Inter', sans-serif;
+  --color-bg-base: #020804;
+  --color-surface: #18181B;
+  --color-border: #27272A;
+  --color-accent: #34D399;
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #A1A1AA;
+  --font-display: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #1e2436 transparent;
+  scrollbar-color: #27272A transparent;
 }
 
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: #1e2436;
-  border-radius: 2px;
+  background: #27272A;
+  border-radius: 3px;
 }
 
-.pulse-dot {
-  animation: pulse-dot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+input,
+button,
+select {
+  font: inherit;
 }
 
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+input:focus,
+select:focus {
+  outline: 2px solid #34D399;
+  outline-offset: -1px;
 }
 
-.slide-in {
-  animation: slide-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+/* Motion cue dari spec: hover lift yang halus. */
+.card-hover {
+  transition: transform 0.15s ease;
 }
 
-@keyframes slide-in {
-  from { opacity: 0; transform: translateY(12px) scale(0.97); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+.card-hover:hover {
+  transform: translateY(-1px);
 }

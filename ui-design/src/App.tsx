@@ -1,13 +1,45 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
 type AccountStatus = "active" | "sleeping" | "new" | "error";
-type SortOrder = "unread" | "name" | "default";
+type SortOrder = "unread" | "name" | "default" | "post-desc" | "post-asc";
 type FilterStatus = "all" | AccountStatus;
+
 const STALE_THRESHOLD_MS = 15 * 60 * 1000;
+const CARD_MIN_WIDTH = 200;
+const GRID_GAP = 12;
+
+const palette = {
+  border: "#27272A",
+  borderStrong: "#3F3F46",
+  text: "#FFFFFF",
+  textSecondary: "#A1A1AA",
+  textMuted: "#71717A",
+  accent: "#34D399",
+  accentSoft: "rgba(52,211,153,0.12)",
+  green: "#34D399",
+  amber: "#FBBF24",
+  red: "#F87171",
+  card: "#18181B",
+  bg: "#020804",
+  fontDisplay: "Inter, system-ui, sans-serif",
+} as const;
+
+const statusConfig: Record<
+  AccountStatus,
+  { label: string; color: string }
+> = {
+  active: { label: "Aktif", color: palette.green },
+  sleeping: { label: "Tidur", color: palette.amber },
+  new: { label: "Baru", color: palette.textSecondary },
+  error: { label: "Error", color: palette.red },
+};
+
 function mapApiAccount(account: AccountStatusData): AccountStatusData {
   return {
     accountId: account.accountId,
     name: account.name,
     city: account.city ?? "",
+    postCount: account.postCount ?? null,
     enabled: account.enabled,
     state: account.state,
     loggedIn: account.loggedIn,
@@ -16,38 +48,28 @@ function mapApiAccount(account: AccountStatusData): AccountStatusData {
     error: account.error,
   };
 }
+
 function mapToDisplayStatus(account: AccountStatusData): AccountStatus {
-  if (account.state === "error") {
-    return "error";
-  }
-  if (account.state === "starting" || account.state === "idle") {
-    return "new";
-  }
-  if (account.state === "offline" || account.state === "stopped") {
+  if (account.state === "error") return "error";
+  if (account.state === "starting" || account.state === "idle") return "new";
+  if (account.state === "offline" || account.state === "stopped")
     return "sleeping";
-  }
   if (account.lastCheckedAt) {
     const age = Date.now() - new Date(account.lastCheckedAt).getTime();
-    if (age > STALE_THRESHOLD_MS) {
-      return "sleeping";
-    }
+    if (age > STALE_THRESHOLD_MS) return "sleeping";
   }
   return "active";
 }
+
 function formatLastChecked(iso: string | null): string {
-  if (!iso) {
-    return "Belum pernah dicek";
-  }
+  if (!iso) return "Belum pernah dicek";
   const diffMs = Math.max(0, Date.now() - new Date(iso).getTime());
   const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) {
-    return "Baru saja";
-  }
-  if (mins < 60) {
-    return `${mins} menit lalu`;
-  }
-  return `${Math.floor(mins / 60)} jam lalu`;
+  if (mins < 1) return "Dicek baru saja";
+  if (mins < 60) return `Dicek ${mins} menit lalu`;
+  return `Dicek ${Math.floor(mins / 60)} jam lalu`;
 }
+
 function warningFor(
   account: AccountStatusData,
   display: AccountStatus,
@@ -56,38 +78,34 @@ function warningFor(
     return account.error || "Terjadi kesalahan";
   }
   if (account.state === "offline") {
-    return "Sesi login belum tersedia";
+    // Sesi kadaluarsa / akun ditangguhkan / banned -- alasan spesifik
+    // dikirim dari rotator (checkUnread.js: describeUnusable).
+    return account.error || "Sesi login belum tersedia";
   }
   if (display === "new") {
-    return "Menunggu pengecekan...";
+    return "Menunggu pengecekan";
   }
   return null;
 }
-function StatusBadge({ status }: { status: AccountStatus }) {
-  const config: Record<
-    AccountStatus,
-    { label: string; color: string; pulse: boolean }
-  > = {
-    active: { label: "AKTIF", color: "#22c55e", pulse: true },
-    sleeping: { label: "TIDUR", color: "#f59e0b", pulse: false },
-    new: { label: "BARU", color: "#3b82f6", pulse: true },
-    error: { label: "ERROR", color: "#ef4444", pulse: false },
-  };
-  const { label, color, pulse } = config[status];
+
+function StatusDot({ status }: { status: AccountStatus }) {
+  const { label, color } = statusConfig[status];
   return (
-    <span
-      className="flex items-center gap-1.5 text-[10px] font-medium tracking-widest uppercase"
-      style={{ color, fontFamily: "var(--font-mono)" }}
-    >
-      {" "}
+    <span className="flex items-center gap-1.5 text-[12px]">
       <span
-        className={`size-1.5 rounded-full ${pulse ? "pulse-dot" : ""}`}
+        className="inline-block size-2 rounded-full"
         style={{ background: color }}
-      />{" "}
-      {label}{" "}
+      />
+      <span style={{ color }}>{label}</span>
     </span>
   );
 }
+
+// --- Modal tambah akun -----------------------------------------------------
+// ↑/↓ pindah antar kolom, Enter menyimpan (form submit).
+
+const MODAL_FIELDS = 4;
+
 function AddAccountModal({
   onClose,
   onCreated,
@@ -98,8 +116,22 @@ function AddAccountModal({
   const [accountId, setAccountId] = useState("");
   const [name, setName] = useState("");
   const [city, setCity] = useState("");
+  const [postCount, setPostCount] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const fieldRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  const moveFocus = (
+    event: React.KeyboardEvent<HTMLInputElement>,
+    index: number,
+  ) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const step = event.key === "ArrowDown" ? 1 : -1;
+    const next = (index + step + MODAL_FIELDS) % MODAL_FIELDS;
+    fieldRefs.current[next]?.focus();
+  };
+
   const submit = async () => {
     setError("");
     const normalizedId = accountId.trim();
@@ -119,6 +151,7 @@ function AddAccountModal({
         accountId: normalizedId,
         name: normalizedName,
         city: normalizedCity,
+        postCount: postCount.trim() === "" ? null : Number(postCount),
       });
       onCreated(accounts);
       onClose();
@@ -128,203 +161,219 @@ function AddAccountModal({
       setBusy(false);
     }
   };
+
+  const labelStyle = {
+    display: "block",
+    fontSize: 13,
+    color: palette.textSecondary,
+    marginBottom: 4,
+  } as const;
+
+  const inputStyle = {
+    width: "100%",
+    padding: "7px 10px",
+    fontSize: 13,
+    borderRadius: 6,
+    border: `1px solid ${palette.borderStrong}`,
+    background: palette.card,
+    color: palette.text,
+  } as const;
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.65)" }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)" }}
     >
-      {" "}
-      <div
-        className="w-full max-w-md rounded-xl p-5"
+      <form
+        className="w-full max-w-sm rounded-lg p-5"
         style={{
-          background: "#141820",
-          border: "1px solid #2a3050",
-          boxShadow: "0 20px 50px rgba(0,0,0,0.45)",
+          background: palette.card,
+          border: `1px solid ${palette.border}`,
+          boxShadow: "0 16px 40px rgba(0,0,0,0.5)",
+        }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!busy) void submit();
         }}
       >
-        {" "}
-        <div className="flex items-center justify-between mb-5">
-          {" "}
-          <div>
-            {" "}
-            <div className="text-sm font-semibold" style={{ color: "#e2e8f0" }}>
-              {" "}
-              Tambah Profil Akun{" "}
-            </div>{" "}
-            <div
-              className="text-[10px] mt-1"
-              style={{ color: "#64748b", fontFamily: "var(--font-mono)" }}
-            >
-              {" "}
-              Profil dibuat tanpa membuka browser.{" "}
-            </div>{" "}
-          </div>{" "}
-          <button
-            onClick={onClose}
-            disabled={busy}
-            className="text-lg"
-            style={{ color: "#64748b" }}
+        <div className="mb-4">
+          <div
+            className="text-[15px] font-semibold"
+            style={{ fontFamily: palette.fontDisplay }}
           >
-            {" "}
-            ×{" "}
-          </button>{" "}
-        </div>{" "}
+            Tambah Akun
+          </div>
+          <div className="text-[12px]" style={{ color: palette.textMuted }}>
+            Profil dibuat tanpa membuka browser.
+          </div>
+        </div>
+
         <div className="space-y-3">
-          {" "}
           <div>
-            {" "}
-            <label
-              className="block text-[10px] mb-1 uppercase tracking-wider"
-              style={{ color: "#64748b", fontFamily: "var(--font-mono)" }}
-            >
-              {" "}
-              Account ID{" "}
-            </label>{" "}
+            <label style={labelStyle} htmlFor="field-account-id">
+              Account ID
+            </label>
             <input
+              id="field-account-id"
               autoFocus
               value={accountId}
               onChange={(event) => setAccountId(event.target.value)}
-              placeholder="contoh: akun-003"
-              className="w-full px-3 py-2 rounded text-xs outline-none"
-              style={{
-                background: "#10141c",
-                border: "1px solid #1e2436",
-                color: "#e2e8f0",
-                fontFamily: "var(--font-mono)",
+              onKeyDown={(event) => moveFocus(event, 0)}
+              ref={(el) => {
+                fieldRefs.current[0] = el;
               }}
-            />{" "}
-          </div>{" "}
+              placeholder="akun-003"
+              style={inputStyle}
+            />
+          </div>
           <div>
-            {" "}
-            <label
-              className="block text-[10px] mb-1 uppercase tracking-wider"
-              style={{ color: "#64748b", fontFamily: "var(--font-mono)" }}
-            >
-              {" "}
-              Nama akun{" "}
-            </label>{" "}
+            <label style={labelStyle} htmlFor="field-name">
+              Nama akun
+            </label>
             <input
+              id="field-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="contoh: Toko Kediri"
-              className="w-full px-3 py-2 rounded text-xs outline-none"
-              style={{
-                background: "#10141c",
-                border: "1px solid #1e2436",
-                color: "#e2e8f0",
+              onKeyDown={(event) => moveFocus(event, 1)}
+              ref={(el) => {
+                fieldRefs.current[1] = el;
               }}
-            />{" "}
-          </div>{" "}
+              placeholder="Toko Kediri"
+              style={inputStyle}
+            />
+          </div>
           <div>
-            {" "}
-            <label
-              className="block text-[10px] mb-1 uppercase tracking-wider"
-              style={{ color: "#64748b", fontFamily: "var(--font-mono)" }}
-            >
-              {" "}
-              Kota{" "}
-            </label>{" "}
+            <label style={labelStyle} htmlFor="field-city">
+              Kota
+            </label>
             <input
+              id="field-city"
               value={city}
               onChange={(event) => setCity(event.target.value)}
-              placeholder="contoh: Kediri"
-              className="w-full px-3 py-2 rounded text-xs outline-none"
-              style={{
-                background: "#10141c",
-                border: "1px solid #1e2436",
-                color: "#e2e8f0",
+              onKeyDown={(event) => moveFocus(event, 2)}
+              ref={(el) => {
+                fieldRefs.current[2] = el;
               }}
-            />{" "}
-          </div>{" "}
+              placeholder="Kediri"
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={labelStyle} htmlFor="field-post-count">
+              Jumlah postingan (opsional)
+            </label>
+            <input
+              id="field-post-count"
+              type="number"
+              min={0}
+              value={postCount}
+              onChange={(event) => setPostCount(event.target.value)}
+              onKeyDown={(event) => moveFocus(event, 3)}
+              ref={(el) => {
+                fieldRefs.current[3] = el;
+              }}
+              placeholder="12"
+              style={inputStyle}
+            />
+            <div
+              className="mt-1 text-[11px]"
+              style={{ color: palette.textMuted }}
+            >
+              Boleh dikosongkan. Isi 0 kalau memang belum ada postingan.
+            </div>
+          </div>
+
           {error && (
             <div
-              className="px-3 py-2 rounded text-[10px]"
+              className="rounded px-3 py-2 text-[12px]"
               style={{
-                background: "rgba(239,68,68,0.08)",
-                border: "1px solid rgba(239,68,68,0.25)",
-                color: "#f87171",
-                fontFamily: "var(--font-mono)",
+                background: "rgba(248,113,113,0.12)",
+                border: "1px solid rgba(248,113,113,0.35)",
+                color: palette.red,
               }}
             >
-              {" "}
-              {error}{" "}
+              {error}
             </div>
-          )}{" "}
-        </div>{" "}
-        <div className="flex justify-end gap-2 mt-5">
-          {" "}
+          )}
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
           <button
+            type="button"
             onClick={onClose}
             disabled={busy}
-            className="px-3 py-2 rounded text-[10px] uppercase"
+            className="rounded px-3 py-1.5 text-[13px] disabled:opacity-50"
             style={{
-              background: "#10141c",
-              border: "1px solid #1e2436",
-              color: "#64748b",
-              fontFamily: "var(--font-mono)",
+              background: "transparent",
+              border: `1px solid ${palette.borderStrong}`,
+              color: palette.textSecondary,
             }}
           >
-            {" "}
-            Batal{" "}
-          </button>{" "}
+            Batal
+          </button>
           <button
-            onClick={submit}
+            type="submit"
             disabled={busy}
-            className="px-3 py-2 rounded text-[10px] uppercase"
-            style={{
-              background: "#3b82f618",
-              border: "1px solid #3b82f640",
-              color: "#60a5fa",
-              fontFamily: "var(--font-mono)",
-              opacity: busy ? 0.5 : 1,
-            }}
+            className="rounded px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+            style={{ background: palette.accent }}
           >
-            {" "}
-            {busy ? "Menyimpan..." : "Tambahkan"}{" "}
-          </button>{" "}
-        </div>{" "}
-      </div>{" "}
+            {busy ? "Menyimpan..." : "Tambahkan"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
+
+// --- Kartu akun -------------------------------------------------------------
+
 function AccountCard({
   account,
+  selected,
   isChecking,
+  onSelect,
   onRemove,
   onUpdate,
   onReply,
+  onContextMenu,
 }: {
   account: AccountStatusData;
+  selected: boolean;
   isChecking: boolean;
+  onSelect: (id: string) => void;
   onRemove: (id: string) => void;
-  onUpdate: (id: string, updates: { name?: string; city?: string }) => void;
+  onUpdate: (id: string, updates: { name?: string; city?: string; postCount?: number | null }) => void;
   onReply: (id: string) => void;
+  onContextMenu: (event: React.MouseEvent, id: string) => void;
 }) {
   const display = mapToDisplayStatus(account);
   const unreadCount = account.unreadCount ?? 0;
   const [editingName, setEditingName] = useState(false);
   const [editingCity, setEditingCity] = useState(false);
+  const [editingPostCount, setEditingPostCount] = useState(false);
   const [nameDraft, setNameDraft] = useState(account.name);
   const [cityDraft, setCityDraft] = useState(account.city ?? "");
+  const [postCountDraft, setPostCountDraft] = useState(
+    account.postCount === null ? "" : String(account.postCount),
+  );
   const [replyBusy, setReplyBusy] = useState(false);
-  const borderColor = isChecking
-    ? "#3b82f6"
-    : display === "active"
-      ? "rgba(34,197,94,0.18)"
-      : display === "sleeping"
-        ? "rgba(245,158,11,0.2)"
-        : display === "error"
-          ? "rgba(239,68,68,0.3)"
-          : "rgba(59,130,246,0.3)";
-  const headerAccent =
-    display === "active"
-      ? "#22c55e"
-      : display === "sleeping"
-        ? "#f59e0b"
-        : display === "error"
-          ? "#ef4444"
-          : "#3b82f6";
+
   const warning = warningFor(account, display);
+
+  // Border "menyala" mengikuti status: hijau = aktif, merah = error.
+  const statusBorderColor =
+    display === "error"
+      ? palette.red
+      : display === "active" || isChecking
+        ? palette.accent
+        : palette.border;
+  const statusGlow =
+    display === "error"
+      ? "0 0 10px rgba(248,113,113,0.25)"
+      : display === "active"
+        ? "0 0 10px rgba(52,211,153,0.2)"
+        : undefined;
+
   const saveName = () => {
     setEditingName(false);
     const trimmed = nameDraft.trim();
@@ -334,6 +383,7 @@ function AccountCard({
       setNameDraft(account.name);
     }
   };
+
   const saveCity = () => {
     setEditingCity(false);
     const trimmed = cityDraft.trim();
@@ -341,6 +391,28 @@ function AccountCard({
       onUpdate(account.accountId, { city: trimmed });
     }
   };
+
+  const savePostCount = () => {
+    setEditingPostCount(false);
+    const raw = postCountDraft.trim();
+    if (raw === "") {
+      if (account.postCount !== null) {
+        onUpdate(account.accountId, { postCount: null });
+      }
+      return;
+    }
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      setPostCountDraft(
+        account.postCount === null ? "" : String(account.postCount),
+      );
+      return;
+    }
+    if (parsed !== account.postCount) {
+      onUpdate(account.accountId, { postCount: parsed });
+    }
+  };
+
   const handleReply = async () => {
     setReplyBusy(true);
     try {
@@ -349,346 +421,300 @@ function AccountCard({
       setReplyBusy(false);
     }
   };
+
+  const lineStyle = {
+    fontSize: 12,
+    color: palette.textSecondary,
+    cursor: "text",
+  } as const;
+
+  const smallInputStyle = {
+    width: "100%",
+    fontSize: 12,
+    padding: "1px 5px",
+    borderRadius: 4,
+    border: `1px solid ${palette.accent}`,
+    color: palette.text,
+    marginTop: 2,
+  } as const;
+
   return (
     <div
-      className="relative flex flex-col rounded-lg overflow-hidden group"
-      style={{ border: `1px solid ${borderColor}`, background: "#141820" }}
+      data-account-id={account.accountId}
+      onClick={() => onSelect(account.accountId)}
+      onContextMenu={(event) => onContextMenu(event, account.accountId)}
+      className="card-hover group relative flex flex-col rounded-lg p-3"
+      style={{
+        background: palette.card,
+        border: `1px solid ${statusBorderColor}`,
+        boxShadow: `0 4px 16px rgba(0,0,0,0.35)${
+          statusGlow ? `, ${statusGlow}` : ""
+        }`,
+        outline: selected && !isChecking ? `1px solid ${palette.accent}` : undefined,
+      }}
     >
-      {" "}
       <button
-        onClick={() => onRemove(account.accountId)}
-        className="absolute top-1.5 right-1.5 z-10 flex items-center justify-center size-5 rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
-        style={{ background: "#1e2436", color: "#64748b" }}
+        onClick={(event) => {
+          event.stopPropagation();
+          onRemove(account.accountId);
+        }}
+        className="absolute top-2 right-2 hidden size-5 items-center justify-center rounded text-[13px] group-hover:flex"
+        style={{ color: palette.textMuted }}
         title="Hapus akun"
       >
-        {" "}
-        ×{" "}
-      </button>{" "}
-      <div
-        className="flex items-center gap-2 px-3 pt-3 pb-2"
-        style={{ borderBottom: "1px solid #1e2436", background: "#10141c" }}
-      >
-        {" "}
-        <div
-          className="flex items-center justify-center size-7 rounded text-[11px] font-semibold flex-shrink-0"
-          style={{
-            background: `${headerAccent}18`,
-            color: headerAccent,
-            fontFamily: "var(--font-mono)",
+        ×
+      </button>
+
+      {editingName ? (
+        <input
+          autoFocus
+          value={nameDraft}
+          onChange={(event) => setNameDraft(event.target.value)}
+          onBlur={saveName}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") (event.target as HTMLInputElement).blur();
           }}
-        >
-          {" "}
-          {account.name.charAt(0)}{" "}
-        </div>{" "}
-        <div className="min-w-0 flex-1">
-          {" "}
-          {editingName ? (
-            <input
-              autoFocus
-              value={nameDraft}
-              onChange={(event) => setNameDraft(event.target.value)}
-              onBlur={saveName}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  (event.target as HTMLInputElement).blur();
-                }
-              }}
-              className="w-full text-[12px] font-semibold bg-transparent outline-none"
-              style={{
-                color: "#e2e8f0",
-                border: "1px solid #2a3050",
-                borderRadius: 4,
-                padding: "1px 4px",
-              }}
-            />
-          ) : (
-            <div
-              className="text-[12px] font-semibold truncate pr-5 cursor-text"
-              style={{ color: "#e2e8f0" }}
-              onClick={() => setEditingName(true)}
-              title="Klik untuk edit nama"
-            >
-              {" "}
-              {account.name}{" "}
-            </div>
-          )}{" "}
-          <div
-            className="text-[9px] truncate"
-            style={{ color: "#374151", fontFamily: "var(--font-mono)" }}
-          >
-            {" "}
-            {account.accountId}{" "}
-          </div>{" "}
-          {editingCity ? (
-            <input
-              autoFocus
-              value={cityDraft}
-              placeholder="Kota promosi..."
-              onChange={(event) => setCityDraft(event.target.value)}
-              onBlur={saveCity}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  (event.target as HTMLInputElement).blur();
-                }
-              }}
-              className="w-full text-[9px] bg-transparent outline-none mt-0.5"
-              style={{
-                color: "#60a5fa",
-                border: "1px solid #2a3050",
-                borderRadius: 4,
-                padding: "1px 4px",
-                fontFamily: "var(--font-mono)",
-              }}
-            />
-          ) : (
-            <div
-              className="text-[9px] truncate cursor-text mt-0.5"
-              style={{
-                color: account.city ? "#60a5fa" : "#374151",
-                fontFamily: "var(--font-mono)",
-              }}
-              onClick={() => setEditingCity(true)}
-              title="Klik untuk edit kota"
-            >
-              {" "}
-              📍 {account.city || "Set kota..."}{" "}
-            </div>
-          )}{" "}
-        </div>{" "}
-      </div>{" "}
-      <div className="flex items-center justify-between px-3 py-2">
-        {" "}
-        <StatusBadge status={display} />{" "}
-        <div className="flex items-center gap-1">
-          {" "}
-          <span
-            className="size-1.5 rounded-full"
-            style={{ background: unreadCount > 0 ? "#ef4444" : "#374151" }}
-          />{" "}
-          <span
-            className="text-[11px] tabular-nums font-semibold"
-            style={{
-              color: unreadCount > 0 ? "#ef4444" : "#374151",
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            {" "}
-            {unreadCount}{" "}
-          </span>{" "}
-        </div>{" "}
-      </div>{" "}
-      {warning && (
-        <div
-          className="px-3 pb-2 text-[9px]"
-          style={{ color: "#f59e0b", fontFamily: "var(--font-mono)" }}
-        >
-          {" "}
-          ⚠ {warning}{" "}
-        </div>
-      )}{" "}
-      {isChecking ? (
-        <div
-          className="px-3 pb-2 text-[9px]"
-          style={{ color: "#3b82f6", fontFamily: "var(--font-mono)" }}
-        >
-          {" "}
-          Mengecek...{" "}
-        </div>
+          className="w-full rounded pr-6 text-[14px] font-semibold"
+          style={smallInputStyle}
+        />
       ) : (
         <div
-          className="px-3 pb-2 text-[9px]"
-          style={{ color: "#374151", fontFamily: "var(--font-mono)" }}
+          className="truncate pr-6 text-[14px] font-semibold"
+          style={{ color: palette.text, cursor: "text", fontFamily: palette.fontDisplay }}
+          onClick={() => setEditingName(true)}
+          title="Klik untuk edit nama"
         >
-          {" "}
-          {formatLastChecked(account.lastCheckedAt)}{" "}
+          {account.name}
         </div>
-      )}{" "}
-      <div className="px-3 pb-3 pt-1 space-y-2">
-        {" "}
-        <button
-          onClick={handleReply}
-          disabled={replyBusy}
-          className="w-full py-1.5 rounded text-[10px] font-semibold uppercase tracking-wider disabled:opacity-40"
-          style={{
-            background: "#3b82f618",
-            border: "1px solid #3b82f640",
-            color: "#60a5fa",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          {" "}
-          {replyBusy ? "Membuka..." : "Balas Sekarang"}{" "}
-        </button>{" "}
-      </div>{" "}
+      )}
+
+      <div className="truncate text-[11px]" style={{ color: palette.textMuted }}>
+        {account.accountId}
+      </div>
+
+      <div className="mt-2 space-y-0.5">
+        Kota:{" "}
+        {editingCity ? (
+          <input
+            autoFocus
+            value={cityDraft}
+            placeholder="belum diatur"
+            onChange={(event) => setCityDraft(event.target.value)}
+            onBlur={saveCity}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") (event.target as HTMLInputElement).blur();
+            }}
+            style={smallInputStyle}
+          />
+        ) : (
+          <span style={lineStyle} onClick={() => setEditingCity(true)}>
+            {account.city || "klik untuk isi"}
+          </span>
+        )}
+      </div>
+
+      <div style={lineStyle}>
+        Postingan:{" "}
+        {editingPostCount ? (
+          <input
+            autoFocus
+            type="number"
+            min={0}
+            value={postCountDraft}
+            placeholder="klik untuk isi"
+            onChange={(event) => setPostCountDraft(event.target.value)}
+            onBlur={savePostCount}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") (event.target as HTMLInputElement).blur();
+            }}
+            style={smallInputStyle}
+          />
+        ) : (
+          <span
+            style={{
+              ...lineStyle,
+              color:
+                account.postCount === null ? palette.textMuted : palette.accent,
+            }}
+            onClick={() => setEditingPostCount(true)}
+          >
+            {account.postCount === null
+              ? "klik untuk isi"
+              : `${account.postCount} postingan`}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-2 flex items-center justify-between">
+        <StatusDot status={display} />
+        {unreadCount > 0 && (
+          <span className="text-[12px] font-medium" style={{ color: palette.red }}>
+            {unreadCount} belum dibaca
+          </span>
+        )}
+      </div>
+
+      {warning && (
+        <div className="mt-1 text-[11px]" style={{ color: palette.amber }}>
+          {warning}
+        </div>
+      )}
+
+      {isChecking ? (
+        <div className="mt-1 text-[11px]" style={{ color: palette.accent }}>
+          Mengecek...
+        </div>
+      ) : (
+        <div className="mt-1 text-[11px]" style={{ color: palette.textMuted }}>
+          {formatLastChecked(account.lastCheckedAt)}
+        </div>
+      )}
+
+      <button
+        onClick={(event) => {
+          event.stopPropagation();
+          void handleReply();
+        }}
+        disabled={replyBusy}
+        className="mt-3 w-full rounded py-1.5 text-[12px] disabled:opacity-50"
+        style={
+          display === "error"
+            ? {
+                background: "rgba(248,113,113,0.1)",
+                border: `1px solid ${palette.red}`,
+                color: palette.red,
+              }
+            : account.state === "offline"
+              ? {
+                  background: "rgba(251,191,36,0.1)",
+                  border: `1px solid ${palette.amber}`,
+                  color: palette.amber,
+                }
+              : {
+                  background: palette.accentSoft,
+                  border: `1px solid ${palette.border}`,
+                  color: palette.accent,
+                }
+        }
+      >
+        {replyBusy
+          ? "Membuka..."
+          : display === "error" || account.state === "offline"
+            ? "Login Ulang"
+            : "Balas Sekarang"}
+      </button>
     </div>
   );
 }
-function StatPill({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: string;
-}) {
-  return (
-    <div
-      className="flex items-center gap-2 px-3 py-1.5 rounded"
-      style={{ background: "#10141c", border: "1px solid #1e2436" }}
-    >
-      {" "}
-      <span
-        className="size-2 rounded-full flex-shrink-0"
-        style={{ background: color }}
-      />{" "}
-      <span
-        className="text-[11px] tabular-nums font-semibold"
-        style={{ color, fontFamily: "var(--font-mono)" }}
-      >
-        {" "}
-        {value}{" "}
-      </span>{" "}
-      <span
-        className="text-[10px] tracking-wide uppercase"
-        style={{ color: "#374151", fontFamily: "var(--font-mono)" }}
-      >
-        {" "}
-        {label}{" "}
-      </span>{" "}
-    </div>
-  );
-}
+
+// --- Aplikasi ---------------------------------------------------------------
+
 export default function App() {
   const [accounts, setAccounts] = useState<AccountStatusData[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<FilterStatus>("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("unread");
-  const [now, setNow] = useState(new Date());
   const [engineRunning, setEngineRunning] = useState(false);
   const [engineBusy, setEngineBusy] = useState(false);
-  const [logs, setLogs] = useState<string[]>([]);
+  const [errorText, setErrorText] = useState<string | null>(null);
   const [showAddAccount, setShowAddAccount] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    accountId: string;
+  } | null>(null);
   const [rotation, setRotation] = useState<RotationState>({
     round: 0,
     currentBatch: [],
     checkedSoFar: 0,
     totalAccounts: 0,
   });
+
+  const gridRef = useRef<HTMLDivElement>(null);
+
   const replaceAccounts = (data: AccountStatusData[]) => {
     setAccounts(data.map(mapApiAccount));
   };
+
+  const reportError = (err: unknown) => {
+    setErrorText(err instanceof Error ? err.message : String(err));
+  };
+
   const updateAccount = (
     id: string,
-    updates: { name?: string; city?: string },
+    updates: { name?: string; city?: string; postCount?: number | null },
   ) => {
     setAccounts((prev) =>
       prev.map((account) =>
         account.accountId === id ? { ...account, ...updates } : account,
       ),
     );
-    window.api.updateAccount(id, updates).catch((err) => {
-      setLogs((prev) => [
-        ...prev,
-        `[error] Gagal simpan perubahan akun: ${err instanceof Error ? err.message : String(err)}`,
-      ]);
-    });
+    window.api.updateAccount(id, updates).catch(reportError);
   };
+
   const replyNow = async (id: string) => {
     try {
       await window.api.openReplySession(id);
     } catch (err) {
-      setLogs((prev) => [
-        ...prev,
-        `[error] ${err instanceof Error ? err.message : String(err)}`,
-      ]);
+      reportError(err);
     }
   };
+
   const removeAccount = (id: string) => {
-    window.api
-      .removeAccount(id)
-      .then(replaceAccounts)
-      .catch((err) => {
-        setLogs((prev) => [
-          ...prev,
-          `[error] ${err instanceof Error ? err.message : String(err)}`,
-        ]);
-      });
+    window.api.removeAccount(id).then(replaceAccounts).catch(reportError);
   };
+
   const startBot = async () => {
     setEngineBusy(true);
     try {
       const result = await window.api.startEngine();
       if (!result.started) {
         setEngineRunning(false);
-        if (result.reason === "NO_ENABLED_ACCOUNTS") {
-          setLogs((prev) => [
-            ...prev,
-            "[warn] Bot tidak dapat dimulai: tidak ada akun.",
-          ]);
-        }
         if (result.reason === "NO_ACCOUNTS") {
-          setLogs((prev) => [
-            ...prev,
-            "[warn] Bot tidak dapat dimulai: belum ada profil akun.",
-          ]);
+          setErrorText("Bot tidak dapat dimulai: belum ada profil akun.");
         }
         return;
       }
       setEngineRunning(true);
     } catch (err) {
       setEngineRunning(false);
-      setLogs((prev) => [
-        ...prev,
-        `[error] Gagal menjalankan bot: ${err instanceof Error ? err.message : String(err)}`,
-      ]);
+      reportError(err);
     } finally {
       setEngineBusy(false);
     }
   };
+
   const stopBot = async () => {
     setEngineBusy(true);
     try {
       await window.api.stopEngine();
       setEngineRunning(false);
     } catch (err) {
-      setLogs((prev) => [
-        ...prev,
-        `[error] ${err instanceof Error ? err.message : String(err)}`,
-      ]);
+      reportError(err);
     } finally {
       setEngineBusy(false);
     }
   };
+
+  // Muat data awal + pasang listener IPC.
   useEffect(() => {
-    window.api
-      .getAccounts()
-      .then(replaceAccounts)
-      .catch((err) => {
-        setLogs((prev) => [
-          ...prev,
-          `[error] Gagal membaca akun: ${err instanceof Error ? err.message : String(err)}`,
-        ]);
-      });
+    window.api.getAccounts().then(replaceAccounts).catch(reportError);
     window.api
       .getEngineStatus()
       .then((status) => setEngineRunning(status.running))
       .catch(() => {});
+
     const unsubscribeAccounts = window.api.onAccountsUpdate(replaceAccounts);
     const unsubscribeEngine = window.api.onEngineStatus(({ running }) =>
       setEngineRunning(running),
     );
     const unsubscribeRotation = window.api.onRotationUpdate(setRotation);
-    window.api
-      .getRotationState()
-      .then(setRotation)
-      .catch(() => {});
+    window.api.getRotationState().then(setRotation).catch(() => {});
     const unsubscribeLogs = window.api.onEngineLog((entry) => {
-      setLogs((prev) => [
-        ...prev.slice(-49),
-        `[${entry.level}] ${entry.message}`,
-      ]);
+      if (entry.level === "error") setErrorText(entry.message);
     });
+
     return () => {
       unsubscribeAccounts();
       unsubscribeEngine();
@@ -696,26 +722,24 @@ export default function App() {
       unsubscribeLogs();
     };
   }, []);
+
+  // Tutup menu klik-kanan kalau klik di tempat lain / Escape / window blur.
   useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(new Date());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-  const counts = useMemo(() => {
-    const displayed = accounts.map(mapToDisplayStatus);
-    return {
-      all: accounts.length,
-      active: displayed.filter((status) => status === "active").length,
-      sleeping: displayed.filter((status) => status === "sleeping").length,
-      new: displayed.filter((status) => status === "new").length,
-      error: displayed.filter((status) => status === "error").length,
-      totalUnread: accounts.reduce(
-        (sum, account) => sum + (account.unreadCount ?? 0),
-        0,
-      ),
+    if (!contextMenu) return;
+    const dismiss = () => setContextMenu(null);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dismiss();
     };
-  }, [accounts]);
+    window.addEventListener("click", dismiss);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("blur", dismiss);
+    return () => {
+      window.removeEventListener("click", dismiss);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", dismiss);
+    };
+  }, [contextMenu]);
+
   const filtered = useMemo(() => {
     let list = accounts;
     if (statusFilter !== "all") {
@@ -733,181 +757,192 @@ export default function App() {
       );
     }
     return [...list].sort((a, b) => {
-      if (sortOrder === "unread") {
-        return (b.unreadCount ?? 0) - (a.unreadCount ?? 0);
+      if (sortOrder === "unread") return (b.unreadCount ?? 0) - (a.unreadCount ?? 0);
+      if (sortOrder === "name") return a.name.localeCompare(b.name, "id");
+      if (sortOrder === "post-desc") {
+        // Belum diisi (null) ditaruh paling bawah.
+        return (b.postCount ?? -1) - (a.postCount ?? -1);
       }
-      if (sortOrder === "name") {
-        return a.name.localeCompare(b.name, "id");
+      if (sortOrder === "post-asc") {
+        return (
+          (a.postCount ?? Number.MAX_SAFE_INTEGER) -
+          (b.postCount ?? Number.MAX_SAFE_INTEGER)
+        );
       }
       return 0;
     });
   }, [accounts, statusFilter, searchQuery, sortOrder]);
-  const timeStr = now.toLocaleTimeString("id-ID", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  const dateStr = now.toLocaleDateString("id-ID", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-  const filterTabs: { key: FilterStatus; label: string; color: string }[] = [
-    { key: "all", label: "Semua", color: "#64748b" },
-    { key: "active", label: "Aktif", color: "#22c55e" },
-    { key: "sleeping", label: "Tidur", color: "#f59e0b" },
-    { key: "new", label: "Baru", color: "#3b82f6" },
-    { key: "error", label: "Error", color: "#ef4444" },
+
+  // Keyboard grid: panah pindah kartu (2D), Enter = Balas Sekarang.
+  useEffect(() => {
+    if (showAddAccount) return;
+
+    const columnCount = () => {
+      const width = gridRef.current?.clientWidth ?? 0;
+      return Math.max(1, Math.floor((width + GRID_GAP) / (CARD_MIN_WIDTH + GRID_GAP)));
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (event.key === "Enter") {
+        if (!selectedId) return;
+        event.preventDefault();
+        void replyNow(selectedId);
+        return;
+      }
+
+      if (
+        !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+      ) {
+        return;
+      }
+      if (filtered.length === 0) return;
+
+      event.preventDefault();
+      const columns = columnCount();
+      const current = filtered.findIndex((a) => a.accountId === selectedId);
+      const step =
+        event.key === "ArrowRight"
+          ? 1
+          : event.key === "ArrowLeft"
+            ? -1
+            : event.key === "ArrowDown"
+              ? columns
+              : -columns;
+      const next = Math.min(
+        filtered.length - 1,
+        Math.max(0, (current === -1 ? 0 : current) + step),
+      );
+      const nextId = filtered[next]?.accountId;
+      if (!nextId) return;
+      setSelectedId(nextId);
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-account-id="${CSS.escape(nextId)}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      });
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [filtered, selectedId, showAddAccount]);
+
+  const counts = useMemo(() => {
+    const displayed = accounts.map(mapToDisplayStatus);
+    return {
+      all: accounts.length,
+      active: displayed.filter((s) => s === "active").length,
+      sleeping: displayed.filter((s) => s === "sleeping").length,
+      new: displayed.filter((s) => s === "new").length,
+      error: displayed.filter((s) => s === "error").length,
+      totalUnread: accounts.reduce((sum, a) => sum + (a.unreadCount ?? 0), 0),
+    };
+  }, [accounts]);
+
+  const filterTabs: { key: FilterStatus; label: string }[] = [
+    { key: "all", label: "Semua" },
+    { key: "active", label: "Aktif" },
+    { key: "sleeping", label: "Tidur" },
+    { key: "new", label: "Baru" },
+    { key: "error", label: "Error" },
   ];
-  const sortOptions: { key: SortOrder; label: string }[] = [
-    { key: "unread", label: "Unread Terbanyak" },
-    { key: "name", label: "Nama A–Z" },
-    { key: "default", label: "Urutan Bawaan" },
-  ];
+
+  const menuItemStyle = {
+    display: "block",
+    width: "100%",
+    textAlign: "left" as const,
+    padding: "7px 10px",
+    fontSize: 13,
+    borderRadius: 4,
+    background: "transparent",
+    border: "none",
+    cursor: "pointer",
+    color: palette.text,
+  };
+
   return (
-    <div
-      className="flex flex-col size-full overflow-hidden"
-      style={{ background: "#0a0d12", fontFamily: "var(--font-sans)" }}
-    >
-      {" "}
-      {/* HEADER */}{" "}
-      <div
-        className="flex items-center justify-between px-6 py-3 flex-shrink-0"
-        style={{ borderBottom: "1px solid #1e2436", background: "#0d1017" }}
+    <div className="flex size-full flex-col overflow-hidden">
+      {/* Header */}
+      <header
+        className="flex flex-shrink-0 items-center gap-4 px-5 py-3"
+        style={{ borderBottom: `1px solid ${palette.border}`, background: palette.bg }}
       >
-        {" "}
-        <div className="flex items-center gap-3">
-          {" "}
-          <span
-            className="text-[13px] font-semibold"
-            style={{ color: "#e2e8f0" }}
-          >
-            {" "}
-            Bot Pemantau Marketplace{" "}
-          </span>{" "}
-          <span
-            className="px-2 py-1 rounded text-[9px] uppercase tracking-widest"
-            style={{
-              background: engineRunning
-                ? "rgba(34,197,94,0.1)"
-                : "rgba(245,158,11,0.1)",
-              color: engineRunning ? "#22c55e" : "#f59e0b",
-              border: `1px solid ${engineRunning ? "rgba(34,197,94,0.25)" : "rgba(245,158,11,0.25)"}`,
-              fontFamily: "var(--font-mono)",
-            }}
-          >
-            {" "}
-            {engineRunning ? "RUNNING" : "STOPPED"}{" "}
-          </span>{" "}
-        </div>{" "}
         <div className="flex items-center gap-2">
-          {" "}
-          <StatPill label="Aktif" value={counts.active} color="#22c55e" />{" "}
-          <StatPill label="Tidur" value={counts.sleeping} color="#f59e0b" />{" "}
-          {counts.error > 0 && (
-            <StatPill label="Error" value={counts.error} color="#ef4444" />
-          )}{" "}
-          <div
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded"
-            style={{ background: "#10141c", border: "1px solid #1e2436" }}
+          <span
+            className="text-[15px] font-semibold"
+            style={{ fontFamily: palette.fontDisplay }}
           >
-            {" "}
+            Bot Pemantau Marketplace
+          </span>
+          <span className="flex items-center gap-1.5 text-[13px]">
             <span
-              className="size-2 rounded-full"
-              style={{
-                background: counts.totalUnread > 0 ? "#ef4444" : "#374151",
-              }}
-            />{" "}
-            <span
-              className="text-[11px] tabular-nums font-semibold"
-              style={{
-                color: counts.totalUnread > 0 ? "#ef4444" : "#374151",
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              {" "}
-              {counts.totalUnread}{" "}
-            </span>{" "}
-            <span
-              className="text-[10px] tracking-wide uppercase"
-              style={{ color: "#374151", fontFamily: "var(--font-mono)" }}
-            >
-              {" "}
-              UNREAD{" "}
-            </span>{" "}
-          </div>{" "}
-        </div>{" "}
-        <div className="flex items-center gap-3">
-          {" "}
+              className="inline-block size-2 rounded-full"
+              style={{ background: engineRunning ? palette.green : palette.textMuted }}
+            />
+            <span style={{ color: palette.textSecondary }}>
+              {engineRunning ? "Berjalan" : "Berhenti"}
+            </span>
+          </span>
+        </div>
+
+        <div className="text-[13px]" style={{ color: palette.textSecondary }}>
+          {counts.active} aktif · {counts.sleeping} tidur ·{" "}
+          <span style={{ color: counts.totalUnread > 0 ? palette.red : undefined }}>
+            {counts.totalUnread} belum dibaca
+          </span>
+        </div>
+
+        <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => setShowAddAccount(true)}
             disabled={engineBusy}
-            className="px-3 py-1.5 rounded text-[10px] font-semibold uppercase tracking-wider disabled:opacity-40"
+            className="rounded px-3 py-1.5 text-[13px] disabled:opacity-50"
             style={{
-              background: "#3b82f618",
-              border: "1px solid #3b82f640",
-              color: "#60a5fa",
-              fontFamily: "var(--font-mono)",
+              background: "transparent",
+              border: `1px solid ${palette.borderStrong}`,
+              color: palette.text,
             }}
           >
-            {" "}
-            + Profil{" "}
-          </button>{" "}
+            Tambah Akun
+          </button>
           <button
-            disabled={engineBusy || engineRunning}
             onClick={startBot}
-            className="px-3 py-1.5 rounded text-[10px] font-semibold uppercase tracking-wider disabled:opacity-40"
-            style={{
-              background: "#22c55e18",
-              border: "1px solid #22c55e40",
-              color: "#22c55e",
-              fontFamily: "var(--font-mono)",
-            }}
+            disabled={engineBusy || engineRunning}
+            className="rounded px-3 py-1.5 text-[13px] font-medium disabled:opacity-50"
+            style={{ background: palette.accent, color: palette.bg }}
           >
-            {" "}
-            Start{" "}
-          </button>{" "}
+            Mulai
+          </button>
           <button
-            disabled={engineBusy || !engineRunning}
             onClick={stopBot}
-            className="px-3 py-1.5 rounded text-[10px] font-semibold uppercase tracking-wider disabled:opacity-40"
+            disabled={engineBusy || !engineRunning}
+            className="rounded px-3 py-1.5 text-[13px] font-medium disabled:opacity-50"
             style={{
-              background: "#ef444418",
-              border: "1px solid #ef444440",
-              color: "#ef4444",
-              fontFamily: "var(--font-mono)",
+              background: "rgba(248,113,113,0.1)",
+              border: `1px solid ${palette.red}`,
+              color: palette.red,
             }}
           >
-            {" "}
-            Stop{" "}
-          </button>{" "}
-          <div className="flex flex-col items-end">
-            {" "}
-            <span
-              className="text-[13px] tabular-nums font-medium"
-              style={{ color: "#64748b", fontFamily: "var(--font-mono)" }}
-            >
-              {" "}
-              {timeStr}{" "}
-            </span>{" "}
-            <span
-              className="text-[9px]"
-              style={{ color: "#374151", fontFamily: "var(--font-mono)" }}
-            >
-              {" "}
-              {dateStr}{" "}
-            </span>{" "}
-          </div>{" "}
-        </div>{" "}
-      </div>{" "}
-      {/* FILTER BAR */}{" "}
+            Berhenti
+          </button>
+        </div>
+      </header>
+
+      {/* Filter bar */}
       <div
-        className="flex items-center gap-3 px-6 py-2.5 flex-shrink-0"
-        style={{ borderBottom: "1px solid #1e2436", background: "#0d1017" }}
+        className="flex flex-shrink-0 items-center gap-3 px-5 py-2"
+        style={{ borderBottom: `1px solid ${palette.border}`, background: palette.bg }}
       >
-        {" "}
         <div className="flex items-center gap-1">
-          {" "}
           {filterTabs.map((tab) => {
             const count =
               tab.key === "all"
@@ -918,173 +953,169 @@ export default function App() {
               <button
                 key={tab.key}
                 onClick={() => setStatusFilter(tab.key)}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-medium tracking-wide"
+                className="rounded px-2 py-1 text-[13px]"
                 style={{
-                  fontFamily: "var(--font-mono)",
-                  background: active ? `${tab.color}18` : "transparent",
-                  border: `1px solid ${active ? `${tab.color}40` : "#1e2436"}`,
-                  color: active ? tab.color : "#374151",
+                  background: active ? palette.accentSoft : "transparent",
+                  border: `1px solid ${active ? palette.accent : palette.border}`,
+                  color: active ? palette.accent : palette.textSecondary,
                 }}
               >
-                {" "}
-                {tab.label} ( {count}){" "}
+                {tab.label} ({count})
               </button>
             );
-          })}{" "}
-        </div>{" "}
-        <div className="w-px h-5" style={{ background: "#1e2436" }} />{" "}
-        <div className="relative flex-1 max-w-xs">
-          {" "}
-          <input
-            type="text"
-            placeholder="Cari nama atau ID akun..."
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            className="w-full px-3 py-1.5 rounded text-[11px] outline-none"
+          })}
+        </div>
+
+        <input
+          type="text"
+          placeholder="Cari nama atau ID akun..."
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          className="max-w-xs flex-1 rounded px-2.5 py-1.5 text-[13px]"
+          style={{
+            border: `1px solid ${palette.borderStrong}`,
+            background: palette.card,
+            color: palette.text,
+          }}
+        />
+
+        <label className="flex items-center gap-1.5 text-[13px]" style={{ color: palette.textSecondary }}>
+          Urutkan:
+          <select
+            value={sortOrder}
+            onChange={(event) => setSortOrder(event.target.value as SortOrder)}
+            className="rounded px-2 py-1 text-[13px]"
             style={{
-              background: "#10141c",
-              border: "1px solid #1e2436",
-              color: "#e2e8f0",
-              fontFamily: "var(--font-mono)",
+              border: `1px solid ${palette.borderStrong}`,
+              background: palette.card,
+              color: palette.text,
             }}
-          />{" "}
-        </div>{" "}
-        <div className="w-px h-5" style={{ background: "#1e2436" }} />{" "}
-        <div className="flex items-center gap-1.5">
-          {" "}
-          <span
-            className="text-[9px] uppercase"
-            style={{ color: "#374151", fontFamily: "var(--font-mono)" }}
           >
-            {" "}
-            Urutkan:{" "}
-          </span>{" "}
-          {sortOptions.map((option) => (
-            <button
-              key={option.key}
-              onClick={() => setSortOrder(option.key)}
-              className="px-2 py-1 rounded text-[9px]"
-              style={{
-                fontFamily: "var(--font-mono)",
-                background:
-                  sortOrder === option.key
-                    ? "rgba(59,130,246,0.12)"
-                    : "transparent",
-                border: `1px solid ${sortOrder === option.key ? "rgba(59,130,246,0.3)" : "#1e2436"}`,
-                color: sortOrder === option.key ? "#60a5fa" : "#374151",
-              }}
-            >
-              {" "}
-              {option.label}{" "}
-            </button>
-          ))}{" "}
-        </div>{" "}
-        <div
-          className="ml-auto text-[9px]"
-          style={{ color: "#374151", fontFamily: "var(--font-mono)" }}
-        >
-          {" "}
-          {filtered.length} akun{" "}
-        </div>{" "}
-      </div>{" "}
-      {/* ACCOUNT GRID */}{" "}
-      <div className="flex-1 overflow-y-auto p-5">
-        {" "}
+            <option value="unread">Unread terbanyak</option>
+            <option value="name">Nama A–Z</option>
+            <option value="post-desc">Postingan terbanyak</option>
+            <option value="post-asc">Postingan terkecil</option>
+            <option value="default">Urutan bawaan</option>
+          </select>
+        </label>
+
+        <span className="ml-auto text-[13px]" style={{ color: palette.textMuted }}>
+          {filtered.length} akun
+        </span>
+      </div>
+
+      {/* Grid akun */}
+      <div ref={gridRef} className="flex-1 overflow-y-auto p-5">
         {accounts.length === 0 ? (
           <div
-            className="flex items-center justify-center h-full text-[11px] uppercase tracking-widest"
-            style={{ color: "#374151", fontFamily: "var(--font-mono)" }}
+            className="flex h-full items-center justify-center text-[13px]"
+            style={{ color: palette.textMuted }}
           >
-            {" "}
-            Memuat data akun...{" "}
+            Memuat data akun...
           </div>
         ) : filtered.length === 0 ? (
           <div
-            className="flex items-center justify-center h-full text-[11px] uppercase tracking-widest"
-            style={{ color: "#374151", fontFamily: "var(--font-mono)" }}
+            className="flex h-full items-center justify-center text-[13px]"
+            style={{ color: palette.textMuted }}
           >
-            {" "}
-            Tidak ada akun ditemukan{" "}
+            Tidak ada akun ditemukan
           </div>
         ) : (
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
-              gap: "12px",
+              gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
+              gap: GRID_GAP,
             }}
           >
-            {" "}
             {filtered.map((account) => (
               <AccountCard
                 key={account.accountId}
                 account={account}
+                selected={selectedId === account.accountId}
                 isChecking={rotation.currentBatch.includes(account.accountId)}
+                onSelect={setSelectedId}
                 onRemove={removeAccount}
                 onUpdate={updateAccount}
                 onReply={replyNow}
+                onContextMenu={(event, id) => {
+                  event.preventDefault();
+                  setSelectedId(id);
+                  setContextMenu({ x: event.clientX, y: event.clientY, accountId: id });
+                }}
               />
-            ))}{" "}
+            ))}
           </div>
-        )}{" "}
-      </div>{" "}
-      {/* FOOTER */}{" "}
-      <div
-        className="flex items-center justify-between px-6 py-2 flex-shrink-0"
-        style={{ borderTop: "1px solid #1e2436", background: "#0d1017" }}
+        )}
+      </div>
+
+      {/* Footer */}
+      <footer
+        className="flex flex-shrink-0 items-center gap-4 px-5 py-2 text-[12px]"
+        style={{ borderTop: `1px solid ${palette.border}`, color: palette.textMuted }}
       >
-        {" "}
-        <div className="flex items-center gap-4">
-          {" "}
-          <div className="flex items-center gap-1.5">
-            {" "}
-            <span
-              className="size-1.5 rounded-full"
-              style={{ background: engineRunning ? "#22c55e" : "#f59e0b" }}
-            />{" "}
-            <span
-              className="text-[9px] tracking-widest uppercase"
-              style={{ color: "#374151", fontFamily: "var(--font-mono)" }}
-            >
-              {" "}
-              {engineRunning ? "Sistem berjalan" : "Sistem dihentikan"}{" "}
-            </span>{" "}
-          </div>{" "}
-          {rotation.totalAccounts > 0 && (
-            <span
-              className="text-[9px]"
-              style={{ color: "#374151", fontFamily: "var(--font-mono)" }}
-            >
-              {" "}
-              Putaran # {rotation.round} — {rotation.checkedSoFar} /{" "}
-              {rotation.totalAccounts} akun dicek{" "}
-            </span>
-          )}{" "}
-          {rotation.currentBatch.length > 0 && (
-            <span
-              className="text-[9px] truncate max-w-md"
-              style={{ color: "#3b82f6", fontFamily: "var(--font-mono)" }}
-            >
-              {" "}
-              Sedang cek: {rotation.currentBatch.join(", ")}{" "}
-            </span>
-          )}{" "}
-        </div>{" "}
-        <span
-          className="text-[9px]"
-          style={{ color: "#374151", fontFamily: "var(--font-mono)" }}
+        {rotation.totalAccounts > 0 && (
+          <span style={{ color: palette.textSecondary }}>
+            Putaran #{rotation.round} — {rotation.checkedSoFar}/
+            {rotation.totalAccounts} akun dicek
+          </span>
+        )}
+        {rotation.currentBatch.length > 0 && (
+          <span className="truncate" style={{ color: palette.accent }}>
+            Sedang cek: {rotation.currentBatch.join(", ")}
+          </span>
+        )}
+        {errorText && (
+          <span className="truncate" style={{ color: palette.red }} title={errorText}>
+            {errorText}
+          </span>
+        )}
+        <span className="ml-auto">
+          Panah: pilih akun · Enter: balas · Klik kanan: menu
+        </span>
+      </footer>
+
+      {/* Menu klik-kanan */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 py-1"
+          style={{
+            left: Math.min(contextMenu.x, window.innerWidth - 180),
+            top: Math.min(contextMenu.y, window.innerHeight - 90),
+            width: 168,
+            background: palette.card,
+            border: `1px solid ${palette.border}`,
+            borderRadius: 8,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          }}
         >
-          {" "}
-          Log: {logs.length}{" "}
-        </span>{" "}
-      </div>{" "}
-      {/* ADD ACCOUNT MODAL */}{" "}
+          <button
+            style={menuItemStyle}
+            onClick={() => {
+              setContextMenu(null);
+              void replyNow(contextMenu.accountId);
+            }}
+          >
+            Balas Sekarang
+          </button>
+          <button
+            style={{ ...menuItemStyle, color: palette.red }}
+            onClick={() => {
+              setContextMenu(null);
+              removeAccount(contextMenu.accountId);
+            }}
+          >
+            Hapus Akun
+          </button>
+        </div>
+      )}
+
       {showAddAccount && (
         <AddAccountModal
           onClose={() => setShowAddAccount(false)}
           onCreated={replaceAccounts}
         />
-      )}{" "}
+      )}
     </div>
   );
 }

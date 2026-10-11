@@ -6,6 +6,7 @@ interface AccountStatusData {
   accountId: string;
   name: string;
   city: string; // BARU
+  postCount: number | null; // jumlah postingan, diisi manual (null = belum diisi)
   enabled: boolean;
   state: "idle" | "starting" | "monitoring" | "stopped" | "offline" | "error";
   loggedIn: boolean | null;
@@ -38,6 +39,7 @@ interface Window {
       accountId: string;
       name: string;
       city?: string;
+      postCount?: number | null;
     }) => Promise<AccountStatusData[]>;
     onAccountsUpdate: (
       callback: (statuses: AccountStatusData[]) => void,
@@ -57,11 +59,15 @@ interface Window {
 
     updateAccount: (
       accountId: string,
-      updates: { name?: string; city?: string },
+      updates: { name?: string; city?: string; postCount?: number | null },
     ) => Promise<AccountStatusData[]>;
     openReplySession: (
       accountId: string,
-    ) => Promise<{ opened: boolean; reused: boolean }>;
+    ) => Promise<{
+      opened: boolean;
+      reused: boolean;
+      loginPrompt?: boolean;
+    }>;
 
     getRotationState: () => Promise<RotationState>;
     onRotationUpdate: (callback: (state: RotationState) => void) => () => void;
