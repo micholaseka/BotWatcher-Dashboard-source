@@ -4,8 +4,9 @@
 // di tempat lain. Ganti ENGINE_MODE (atau isi env var ENGINE_MODE) kalau
 // pindah dari laptop Ubuntu (testing) ke Windows (produksi).
 //
-//   dev            -> Chromium bawaan Playwright, sesi disimpan di file
-//                      storageState.json per akun. Dipakai sekarang di Ubuntu.
+//   dev            -> Chromium via patchright (Playwright ter-patch anti-bot),
+//                      sesi disimpan di file storageState.json per akun.
+//                      Dipakai sekarang di Ubuntu untuk development & testing.
 //   chrome-portable -> Chrome Portable asli di Windows, baca sesi langsung
 //                      dari folder profil Chrome yang sudah login (Profile 1,
 //                      Profile 2, dst). Dipakai nanti saat aplikasi jadi.

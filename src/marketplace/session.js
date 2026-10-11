@@ -9,28 +9,8 @@
 import fs from "fs/promises";
 import path from "path";
 import { EventEmitter } from "events";
+import { getStealthChromium, stealthLaunchOptions } from "./stealth.js";
 import { ENGINE_MODE, getSessionConfig } from "../config/engine.config.js";
-
-let chromium = null;
-
-async function getChromium() {
-  if (chromium) return chromium;
-
-  // In the packaged Windows app, Chromium is shipped under resources/.
-  // Dev mode continues to use Playwright's normal browser cache.
-  if (
-    !process.defaultApp &&
-    process.resourcesPath
-  ) {
-    process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(
-      process.resourcesPath,
-      "playwright-browsers",
-    );
-  }
-
-  ({ chromium } = await import("playwright"));
-  return chromium;
-}
 
 export class MarketplaceSession extends EventEmitter {
   /**
@@ -38,11 +18,15 @@ export class MarketplaceSession extends EventEmitter {
    * @param {string} [opts.accountId]   Nama/ID akun. Dipakai buat nama file
    *                                    sesi (mode dev) atau nama profil Chrome
    *                                    (mode chrome-portable, misal "Profile 2").
+   * @param {boolean} [opts.forceLogin] Paksa buka halaman login Facebook
+   *                                    (dipakai untuk akun berstatus error:
+   *                                    sesi kadaluarsa / ditangguhkan).
    */
-  constructor({ accountId = "default" } = {}) {
+  constructor({ accountId = "default", forceLogin = false } = {}) {
     super();
 
     this.accountId = accountId;
+    this.forceLogin = forceLogin;
 
     this.mode = ENGINE_MODE;
     this.config = getSessionConfig();
@@ -74,7 +58,20 @@ export class MarketplaceSession extends EventEmitter {
 
     await this.checkLoginStatus();
 
-    if (this.isLoggedIn) {
+    if (this.forceLogin) {
+      // Akun berstatus error (sesi kadaluarsa / ditangguhkan / banned):
+      // cookie c_user/xs mungkin MASIH ADA tapi tidak valid, jadi deteksi
+      // login biasa menipu. Langgung buka halaman login supaya user bisa
+      // login ulang dari tombol "Balas Sekarang" di kartu merah.
+      this.emit(
+        "log",
+        "Akun berstatus error — membuka halaman login Facebook untuk login ulang.",
+        "warn",
+      );
+      await this.page.goto("https://www.facebook.com/login", {
+        waitUntil: "domcontentloaded",
+      });
+    } else if (this.isLoggedIn) {
       // Sesi sudah ada -> langsung ke Marketplace, jangan biarkan
       // halaman nongkrong di about:blank.
       this.emit("log", "Sesi ditemukan, membuka Marketplace...", "info");
@@ -134,15 +131,10 @@ export class MarketplaceSession extends EventEmitter {
       this.emit("log", "Tidak ada sesi tersimpan untuk akun ini.", "info");
     }
 
-    const playwrightChromium = await getChromium();
+    const playwrightChromium = await getStealthChromium();
 
     this.browser = await playwrightChromium.launch({
-      headless: false,
-      args: [
-        "--start-maximized",
-        "--no-first-run",
-        "--no-default-browser-check",
-      ],
+      ...stealthLaunchOptions,
     });
 
     this.context = await this.browser.newContext({
@@ -159,18 +151,16 @@ export class MarketplaceSession extends EventEmitter {
    * bukan menyuntik sesi ke browser kosong.
    */
   async openChromePortable() {
-    const playwrightChromium = await getChromium();
+    const playwrightChromium = await getStealthChromium();
 
     this.context = await playwrightChromium.launchPersistentContext(
       this.config.userDataDir,
       {
         executablePath: this.config.executablePath,
-        headless: false,
-        viewport: null,
+        ...stealthLaunchOptions,
         args: [
+          ...stealthLaunchOptions.args,
           `--profile-directory=${this.accountId}`,
-          "--no-first-run",
-          "--no-default-browser-check",
         ],
       },
     );

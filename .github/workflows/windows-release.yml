@@ -50,14 +50,14 @@ jobs:
           }
           Write-Host "Electron UI asset path check passed."
 
-      - name: Install bundled Playwright Chromium
+      - name: Install bundled Chromium (patchright)
         shell: pwsh
         run: |
           if (Test-Path playwright-browsers) {
             Remove-Item -Recurse -Force playwright-browsers
           }
           $env:PLAYWRIGHT_BROWSERS_PATH = "$env:GITHUB_WORKSPACE\playwright-browsers"
-          pnpm exec playwright install chromium
+          pnpm exec patchright install chromium
 
       - name: Build Windows EXE
         run: npx --yes electron-builder@26.15.7 --win nsis portable --x64 --publish never

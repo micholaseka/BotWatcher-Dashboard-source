@@ -46,8 +46,9 @@ harusnya langsung login otomatis tanpa perlu buka Facebook manual lagi.
 
 Diatur di `src/config/engine.config.js`, lewat env var `ENGINE_MODE`:
 
-- `dev` (default) — Chromium bawaan Playwright, sesi via file `storageState.json`.
-  Dipakai sekarang di Ubuntu untuk development & testing.
+- `dev` (default) — Chromium via **patchright** (Playwright ter-patch
+  anti-bot: `navigator.webdriver` false, tanpa Runtime.enable leak), sesi via
+  file `storageState.json`. Dipakai sekarang di Ubuntu untuk development & testing.
 - `chrome-portable` — Chrome Portable asli di Windows, langsung pakai profil
   (`Profile 1`, `Profile 2`, dst) yang sudah berisi sesi login. Ini mode
   produksi nanti — belum diuji, isi `CHROME_PORTABLE_PATH` dan
