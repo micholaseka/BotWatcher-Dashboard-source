@@ -46,16 +46,23 @@ async function main() {
     else console.log(message);
   });
 
-  rotator.on("account_checked", ({ accountId, loggedIn, unreadCount }) => {
+  rotator.on("account_checked", ({ accountId, loggedIn, unreadCount, reason }) => {
+    // Aktif hanya kalau dashboard benar-benar terbaca (angka). null =
+    // sesi kadaluarsa / akun ditangguhkan / banned -> Tidur, bukan Aktif.
+    const usable =
+      loggedIn === true &&
+      unreadCount !== null &&
+      unreadCount !== undefined;
+
     manager.updateStatus(accountId, {
-      loggedIn,
+      loggedIn: usable,
       unreadCount,
       lastCheckedAt: new Date(),
-      state: loggedIn ? "monitoring" : "offline",
-      error: null,
+      state: usable ? "monitoring" : "offline",
+      error: usable ? null : (reason ?? null),
     });
 
-    if (loggedIn && unreadCount > 0) {
+    if (usable && unreadCount > 0) {
       const account = manager.getAccount(accountId);
       notifier.notifyUnread(account?.name ?? accountId, unreadCount);
     }

@@ -18,7 +18,7 @@
 
 import { EventEmitter } from "events";
 import { MarketplaceSession } from "../marketplace/session.js";
-import { checkUnreadCount } from "../monitor/checkUnread.js";
+import { checkUnreadCount, describeUnusable } from "../monitor/checkUnread.js";
 
 function shuffle(array) {
   const result = [...array];
@@ -130,11 +130,26 @@ export class AccountRotator extends EventEmitter {
           accountId,
           loggedIn: false,
           unreadCount: null,
+          reason: "Sesi login belum tersedia.",
         });
         return;
       }
 
       const unreadCount = await checkUnreadCount(session.page);
+
+      // null = dashboard tidak terbaca (sesi kadaluarsa, akun
+      // ditangguhkan, atau banned). Jangan dilaporkan "0 unread, aktif".
+      if (unreadCount === null) {
+        const reason = describeUnusable(session.page?.url() ?? "");
+        this.emit("log", `[${accountId}] ${reason}`, "warn");
+        this.emit("account_checked", {
+          accountId,
+          loggedIn: false,
+          unreadCount: null,
+          reason,
+        });
+        return;
+      }
 
       this.emit(
         "log",

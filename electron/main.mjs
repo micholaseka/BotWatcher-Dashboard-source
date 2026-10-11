@@ -188,17 +188,25 @@ function createRotator() {
     broadcastRotation();
   });
 
-  r.on("account_checked", ({ accountId, loggedIn, unreadCount }) => {
+  r.on("account_checked", ({ accountId, loggedIn, unreadCount, reason }) => {
+    // Aktif HANYA kalau dashboard benar-benar terbaca (unreadCount
+    // berupa angka). null = sesi kadaluarsa / akun ditangguhkan /
+    // banned -> status Tidur, BUKAN Aktif.
+    const usable =
+      loggedIn === true &&
+      unreadCount !== null &&
+      unreadCount !== undefined;
+
     manager.updateStatus(accountId, {
-      loggedIn,
+      loggedIn: usable,
       unreadCount,
       lastCheckedAt: new Date(),
-      state: loggedIn ? "monitoring" : "offline",
-      error: null,
+      state: usable ? "monitoring" : "offline",
+      error: usable ? null : (reason ?? null),
     });
     broadcastStatus();
 
-    if (loggedIn && unreadCount > 0) {
+    if (usable && unreadCount > 0) {
       const account = manager.getAccount(accountId);
       notifier.notifyUnread(account?.name ?? accountId, unreadCount);
     }
@@ -225,7 +233,7 @@ ipcMain.handle("accounts:getAll", async () => {
   }
 });
 
-ipcMain.handle("accounts:add", async (_event, { accountId, name, city }) => {
+ipcMain.handle("accounts:add", async (_event, { accountId, name, city, postCount }) => {
   try {
     const activeManager = await getManager();
 
@@ -233,6 +241,7 @@ ipcMain.handle("accounts:add", async (_event, { accountId, name, city }) => {
       accountId,
       name,
       city,
+      postCount,
     });
 
     broadcastStatus();
@@ -324,33 +333,70 @@ ipcMain.handle("accounts:update", async (_event, { accountId, updates }) => {
 // Tombol "Balas Sekarang" -- buka (atau fokus ulang) sesi browser buat
 // akun itu, terpisah dari siklus rotasi otomatis, biar user bisa balas
 // manual.
+//
+// Kalau akun berstatus ERROR (kartu merah) atau OFFLINE (tidur karena
+// sesi/akun bermasalah), cookie lama tetap TERDETEKSI "ada" padahal
+// tidak valid. Jadi buka halaman login Facebook langsung (bukan
+// dashboard), dan begitu user login ulang, status dibersihkan
+// supaya kartu kembali normal.
 ipcMain.handle("accounts:openReply", async (_event, accountId) => {
   const activeManager = await getManager();
   const account = activeManager.getAccount(accountId);
   if (!account) throw new Error(`Akun "${accountId}" tidak ditemukan.`);
 
+  // Kartu merah (error) ATAU tidur karena sesi/akun bermasalah: buka
+  // halaman login Facebook langsung supaya user bisa login ulang /
+  // verifikasi akun dari tombol di kartu.
+  const status = activeManager.getStatus(accountId);
+  const needsLogin =
+    status?.state === "error" || status?.state === "offline";
+
   const existing = replySessions.get(accountId);
   if (existing) {
-    try {
-      await existing.page?.bringToFront();
-      return { opened: true, reused: true };
-    } catch {
+    if (needsLogin) {
+      // Sesi lama (mungkin nyangkut di dashboard/checkpoint) ditutup
+      // dulu supaya browser baru benar-benar mulai dari halaman login.
+      await existing.close().catch(() => {});
       replySessions.delete(accountId);
+    } else {
+      try {
+        await existing.page?.bringToFront();
+        return { opened: true, reused: true };
+      } catch {
+        replySessions.delete(accountId);
+      }
     }
   }
 
   const session = new MarketplaceSession({
     accountId,
+    forceLogin: needsLogin,
   });
   session.on("log", (message, level) =>
     broadcastLog(`[balas:${accountId}] ${message}`, level),
   );
 
+  // Setelah login ulang terdeteksi, hapus status error biar kartu
+  // tidak merah lagi (tanpa nunggu putaran rotasi berikutnya).
+  session.on("login_status", ({ isLoggedIn }) => {
+    if (!isLoggedIn) return;
+    try {
+      activeManager.updateStatus(accountId, {
+        loggedIn: true,
+        state: "monitoring",
+        error: null,
+      });
+      broadcastStatus();
+    } catch {
+      // Akun mungkin baru dihapus user saat sesi browser terbuka.
+    }
+  });
+
   await session.open();
   session.context?.on("close", () => replySessions.delete(accountId));
   replySessions.set(accountId, session);
 
-  return { opened: true, reused: false };
+  return { opened: true, reused: false, loginPrompt: needsLogin };
 });
 
 // --- Setup jendela ---

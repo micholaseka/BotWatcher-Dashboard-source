@@ -36,3 +36,6 @@ jobs:
 
       - name: Test add account persistence
         run: node testing/test-add-account.js
+
+      - name: Test unusable reason mapping
+        run: node testing/test-unusable-reason.js
