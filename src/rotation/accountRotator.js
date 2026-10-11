@@ -162,8 +162,23 @@ export class AccountRotator extends EventEmitter {
         unreadCount,
       });
     } catch (err) {
-      this.emit("log", `[${accountId}] Error: ${err.message}`, "error");
-      this.emit("error", { accountId, error: err });
+      if (String(err.message).includes("ERR_TOO_MANY_REDIRECTS")) {
+        // Facebook memantulkan dashboard <-> login berkali-kali: cookie
+        // akun ADA tapi ditolak (sesi bermasalah / kena limit) — ini
+        // kondisi "Tidur", bukan error teknis.
+        const reason =
+          "Sesi ditolak Facebook (redirect berulang) — perlu login ulang.";
+        this.emit("log", `[${accountId}] ${reason}`, "warn");
+        this.emit("account_checked", {
+          accountId,
+          loggedIn: false,
+          unreadCount: null,
+          reason,
+        });
+      } else {
+        this.emit("log", `[${accountId}] Error: ${err.message}`, "error");
+        this.emit("error", { accountId, error: err });
+      }
     } finally {
       await session.close();
     }

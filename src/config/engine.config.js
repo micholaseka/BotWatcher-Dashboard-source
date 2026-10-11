@@ -5,8 +5,9 @@
 // pindah dari laptop Ubuntu (testing) ke Windows (produksi).
 //
 //   dev            -> Chromium via patchright (Playwright ter-patch anti-bot),
-//                      sesi disimpan di file storageState.json per akun.
-//                      Dipakai sekarang di Ubuntu untuk development & testing.
+//                      profil PERMANEN per akun di storage/profiles/
+//                      (cookie/localStorage/cache tersimpan). Dipakai
+//                      sekarang di Ubuntu untuk development & testing.
 //   chrome-portable -> Chrome Portable asli di Windows, baca sesi langsung
 //                      dari folder profil Chrome yang sudah login (Profile 1,
 //                      Profile 2, dst). Dipakai nanti saat aplikasi jadi.
@@ -20,9 +21,15 @@ const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
 export const ENGINE_MODE = process.env.ENGINE_MODE || "dev"; // "dev" | "chrome-portable"
 
 export const engineConfig = {
-  // ---- Mode "dev": Chromium bawaan Playwright ----
+  // ---- Mode "dev": Chromium patchright dengan profil permanen ----
   dev: {
-    // Folder tempat file sesi (storageState.json) tiap akun disimpan.
+    // Folder profil Chromium PERMANEN per akun (cookie, localStorage,
+    // cache, IndexedDB ikut tersimpan di sini). Pengganti pola lama
+    // "browser bersih + suntik storageState" yang mudah terdeteksi.
+    profileDirectory: path.join(PROJECT_ROOT, "storage", "profiles"),
+
+    // Folder sesi LAMA (storageState.json). Tidak ditulis lagi -- hanya
+    // dipakai sekali untuk seeding login ke profil permanen yang baru.
     sessionDirectory: path.join(PROJECT_ROOT, "storage", "sessions"),
   },
 
@@ -52,9 +59,7 @@ export function getSessionConfig() {
 
   return {
     ...engineConfig.dev,
-    sessionDirectory: path.join(
-      dataRoot,
-      "sessions",
-    ),
+    sessionDirectory: path.join(dataRoot, "storage", "sessions"),
+    profileDirectory: path.join(dataRoot, "storage", "profiles"),
   };
 }

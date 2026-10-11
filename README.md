@@ -21,7 +21,8 @@ botwatcher-dashboard/
 ├── testing/
 │   └── test-session.js        # script UJI COBA saja, terpisah dari src/
 ├── storage/
-│   └── sessions/               # file sesi login per akun (mode dev), diabaikan git
+│   ├── sessions/               # file sesi LAMA (storageState), hanya buat seeding
+│   └── profiles/               # profil Chromium permanen per akun, diabaikan git
 ├── index.js
 └── package.json
 ```
@@ -47,8 +48,10 @@ harusnya langsung login otomatis tanpa perlu buka Facebook manual lagi.
 Diatur di `src/config/engine.config.js`, lewat env var `ENGINE_MODE`:
 
 - `dev` (default) — Chromium via **patchright** (Playwright ter-patch
-  anti-bot: `navigator.webdriver` false, tanpa Runtime.enable leak), sesi via
-  file `storageState.json`. Dipakai sekarang di Ubuntu untuk development & testing.
+  anti-bot: `navigator.webdriver` false, tanpa Runtime.enable leak) dengan
+  **profil permanen per akun** di `storage/profiles/<accountId>/` — cookie,
+  localStorage, dan cache akun ikut tersimpan (bukan lagi browser bersih
+  + suntik cookie). Dipakai sekarang di Ubuntu untuk development & testing.
 - `chrome-portable` — Chrome Portable asli di Windows, langsung pakai profil
   (`Profile 1`, `Profile 2`, dst) yang sudah berisi sesi login. Ini mode
   produksi nanti — belum diuji, isi `CHROME_PORTABLE_PATH` dan

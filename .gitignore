@@ -44,3 +44,8 @@ proxies.csv
 
 # Local bundled Playwright browser build output
 playwright-browsers/
+
+# Sesi/profil yang salah tempat (bug path versi lama) -- cookie sensitif,
+# jangan sampai ke-commit.
+/sessions/
+/profiles/

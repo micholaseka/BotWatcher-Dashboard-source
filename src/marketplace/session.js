@@ -1,23 +1,87 @@
 // src/marketplace/session.js
 //
 // Modul ini urus SATU hal aja: buka browser & pastikan sudah login ke
-// Facebook, apa pun mode-nya (Chromium test di Ubuntu, atau Chrome Portable
-// asli di Windows nanti). Logic deteksi login (cookie c_user + xs) diambil
-// dari automation.js (botautomationpost), lalu dirapikan supaya bisa jalan
-// di 2 mode.
+// Facebook, apa pun mode-nya (profil Chromium permanen di Ubuntu, atau
+// Chrome Portable asli di Windows). Logic deteksi login (cookie c_user +
+// xs) diambil dari automation.js (botautomationpost), lalu dirapikan
+// supaya bisa jalan di 2 mode.
 
 import fs from "fs/promises";
+import { existsSync } from "fs";
 import path from "path";
 import { EventEmitter } from "events";
 import { getStealthChromium, stealthLaunchOptions } from "./stealth.js";
 import { ENGINE_MODE, getSessionConfig } from "../config/engine.config.js";
 
+// Profil Chromium (dan profil Chrome Portable) tidak bisa dibuka dua kali
+// sekaligus. Rotator dan tombol "Balas Sekarang" bisa meminta akun yang
+// sama bersamaan, jadi tiap akun diantrikan lock di sini.
+const accountQueues = new Map(); // accountId -> Promise yang resolve saat sesi tutup
+
+function acquireAccountSlot(accountId) {
+  const previous = accountQueues.get(accountId) ?? Promise.resolve();
+
+  let release;
+  const current = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  // Tiap pemanggil menunggu pemanggil sebelumnya, lalu pegil slot-nya.
+  accountQueues.set(accountId, previous.then(() => current));
+
+  return previous.then(() => release);
+}
+
+/**
+ * Tunggu Chromium melepas SingletonLock (symlink penanda "profil sedang
+ * dipakai", mengarah ke "<host>-<pid>"). Dua kasus:
+ *   1. Browser masih hidup -> tunggu (maks 15 detik) sampai lock lepas.
+ *   2. Symlink nyangkut/dangling (proses mati tanpa bersih-bersih, mis.
+ *      Playwright force-kill) -> hapus supaya akun tetap bisa dibuka.
+ * Aman karena semua akses profil sudah diserialisasi oleh
+ * acquireAccountSlot di atas.
+ */
+async function waitForProfileUnlocked(profileDirectory) {
+  const lockFile = path.join(profileDirectory, "SingletonLock");
+  const deadline = Date.now() + 15000;
+
+  while (Date.now() < deadline) {
+    let lockStat;
+    try {
+      lockStat = await fs.lstat(lockFile); // lstat: lihat symlink-nya sendiri
+    } catch {
+      return; // tidak ada lock sama sekali
+    }
+
+    if (lockStat.isSymbolicLink()) {
+      let ownerAlive = true;
+      try {
+        await fs.stat(lockFile); // stat: ikuti symlink ke target-nya
+      } catch {
+        ownerAlive = false;
+      }
+
+      if (!ownerAlive) {
+        // Target hilang = pemilik sudah mati. Symlink-nya nyangkut.
+        await fs.rm(lockFile, { force: true }).catch(() => {});
+        return;
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  // Keputusan terakhir: hapus lock yang tidak pernah lepas.
+  await fs.rm(lockFile, { force: true }).catch(() => {});
+}
+
 export class MarketplaceSession extends EventEmitter {
   /**
    * @param {Object} opts
-   * @param {string} [opts.accountId]   Nama/ID akun. Dipakai buat nama file
-   *                                    sesi (mode dev) atau nama profil Chrome
-   *                                    (mode chrome-portable, misal "Profile 2").
+   * @param {string} [opts.accountId]   Nama/ID akun. Dipakai buat nama
+   *                                    folder profil permanen (mode dev)
+   *                                    atau nama profil Chrome (mode
+   *                                    chrome-portable, misal "Profile 2").
    * @param {boolean} [opts.forceLogin] Paksa buka halaman login Facebook
    *                                    (dipakai untuk akun berstatus error:
    *                                    sesi kadaluarsa / ditangguhkan).
@@ -46,6 +110,22 @@ export class MarketplaceSession extends EventEmitter {
       "info",
     );
 
+    // Satu profil per akun: tunggu sesi sebelumnya untuk akun yang sama
+    // tutup dulu, kalau tidak Chromium menolak dibuka (profil in-use).
+    this._releaseAccountSlot = await acquireAccountSlot(this.accountId);
+
+    try {
+      await this._openInternal();
+    } catch (error) {
+      if (this._releaseAccountSlot) {
+        this._releaseAccountSlot();
+        this._releaseAccountSlot = null;
+      }
+      throw error;
+    }
+  }
+
+  async _openInternal() {
     if (this.mode === "chrome-portable") {
       await this.openChromePortable();
     } else {
@@ -111,36 +191,88 @@ export class MarketplaceSession extends EventEmitter {
   }
 
   /**
-   * Mode dev: Chromium bawaan Playwright + sesi disimpan di file
-   * storageState.json (satu file per akun). Cocok buat testing di Ubuntu.
+   * Mode dev: Chromium patchright dengan PROFIL PERMANEN per akun
+   * (bukan lagi browser bersih/incognito + suntik cookie dari file).
+   * Cookie, localStorage, cache, dan IndexedDB akun ikut tersimpan di
+   * folder profil -- jauh lebih mirip user asli dan sesuai best
+   * practice patchright.
+   *
+   * Kalau masih ada file sesi LAMA (storageState.json) dan profil akun
+   * belum pernah dipakai, cookie-nya disuntik SEKALI supaya akun yang
+   * sudah login tidak perlu login ulang. Setelah itu sesi disimpan
+   * browser sendiri di folder profil.
    */
   async openDevChromium() {
-    const sessionFile = path.join(
+    const profileDirectory = path.join(
+      this.config.profileDirectory,
+      this.accountId,
+    );
+    await fs.mkdir(profileDirectory, { recursive: true });
+
+    const legacySessionFile = path.join(
       this.config.sessionDirectory,
       `${this.accountId}.json`,
     );
-    await fs.mkdir(path.dirname(sessionFile), { recursive: true });
-    this.sessionFile = sessionFile;
 
-    let storageState;
-    try {
-      await fs.access(sessionFile);
-      storageState = sessionFile;
-      this.emit("log", "Menggunakan sesi login tersimpan.", "info");
-    } catch {
-      this.emit("log", "Tidak ada sesi tersimpan untuk akun ini.", "info");
+    // Seed hanya kalau profil benar-benar kosong (belum pernah dipakai).
+    // Kalau profil sudah berisi sesi yang di-refresh Facebook, file lama
+    // TIDAK dipakai lagi -- menyuntiknya tiap kali justru memaksa cookie
+    // kedaluwarsa kembali.
+    const isFirstRun = (await fs.readdir(profileDirectory)).length === 0;
+
+    let seedFile = null;
+    if (isFirstRun && existsSync(legacySessionFile)) {
+      seedFile = legacySessionFile;
+      this.emit(
+        "log",
+        "Menemukan sesi login lama — akan dipindahkan ke profil permanen.",
+        "info",
+      );
+    } else if (isFirstRun) {
+      this.emit("log", "Profil baru — silakan login manual.", "info");
+    } else {
+      this.emit("log", "Memakai profil permanen akun.", "info");
     }
 
     const playwrightChromium = await getStealthChromium();
 
-    this.browser = await playwrightChromium.launch({
-      ...stealthLaunchOptions,
-    });
+    // Chromium butuh beberapa saat melepas SingletonLock setelah browser
+    // ditutup. Buka lagi terlalu cepat = proses baru gagal (exit code 21,
+    // "profile in use"). Ini ruteknya: klik "Balas Sekarang" tepat
+    // setelah akun itu selesai dicek rotator.
+    await waitForProfileUnlocked(profileDirectory);
 
-    this.context = await this.browser.newContext({
-      ...(storageState ? { storageState } : {}),
-      viewport: null,
-    });
+    this.context = await playwrightChromium.launchPersistentContext(
+      profileDirectory,
+      {
+        ...stealthLaunchOptions,
+      },
+    );
+
+    // Patchright TIDAK menerapkan opsi storageState di persistent context
+    // (sudah diuji: cookie-nya tidak masuk), jadi cookie file lama
+    // disuntik manual lewat addCookies.
+    if (seedFile) {
+      try {
+        const legacyState = JSON.parse(await fs.readFile(seedFile, "utf8"));
+
+        if (
+          Array.isArray(legacyState.cookies) &&
+          legacyState.cookies.length > 0
+        ) {
+          await this.context.addCookies(legacyState.cookies);
+          this.emit(
+            "log",
+            "Sesi lama berhasil dipindahkan ke profil permanen.",
+            "info",
+          );
+        }
+      } catch (err) {
+        this.emit("log", `Gagal memindahkan sesi lama: ${err.message}`, "warn");
+      }
+    }
+    // launchPersistentContext tidak mengembalikan objek browser terpisah;
+    // this.browser sengaja dibiarkan null (sama seperti chrome-portable).
   }
 
   /**
@@ -152,6 +284,9 @@ export class MarketplaceSession extends EventEmitter {
    */
   async openChromePortable() {
     const playwrightChromium = await getStealthChromium();
+
+    // Sama seperti mode dev: tunggu Chromium/Chrome melepas SingletonLock.
+    await waitForProfileUnlocked(this.config.userDataDir);
 
     this.context = await playwrightChromium.launchPersistentContext(
       this.config.userDataDir,
@@ -203,16 +338,9 @@ export class MarketplaceSession extends EventEmitter {
           accountId: this.accountId,
         });
 
-        // Simpan sesi ke file HANYA di mode dev. Di mode chrome-portable,
-        // Chrome sendiri yang sudah menyimpan sesinya di folder profil.
-        if (this.mode === "dev" && this.sessionFile) {
-          try {
-            await this.context.storageState({ path: this.sessionFile });
-            this.emit("log", "Sesi login berhasil disimpan.", "info");
-          } catch (err) {
-            this.emit("log", `Gagal simpan sesi: ${err.message}`, "error");
-          }
-        }
+        // Mode dev: sesi tersimpan OTOMATIS di folder profil permanen
+        // (cookie + localStorage), tidak ada lagi penulisan file
+        // storageState. Mode chrome-portable: Chrome yang menyimpan.
       } else if (!this.isLoggedIn && wasLoggedIn) {
         this.emit("log", "Sesi terputus.", "warn");
         this.emit("login_status", {
@@ -244,6 +372,13 @@ export class MarketplaceSession extends EventEmitter {
     this.context = null;
     this.page = null;
     this.isLoggedIn = false;
+
+    // Buka lock akun supaya sesi berikutnya untuk akun ini bisa jalan.
+    if (this._releaseAccountSlot) {
+      this._releaseAccountSlot();
+      this._releaseAccountSlot = null;
+    }
+
     this.emit("log", "Sesi ditutup.", "info");
   }
 }
