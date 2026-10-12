@@ -1,8 +1,8 @@
 // src/monitor/checkUnread.js
 //
 // Fungsi kecil, reusable: buka halaman dashboard & baca angka "Obrolan
-// yang perlu dijawab". Dipisah dari inboxMonitor.js supaya bisa dipakai
-// juga sama accountRotator.js (buat cek banyak akun bergantian).
+// yang perlu dijawab". Dipakai oleh accountRotator.js untuk mengecek
+// banyak akun bergantian.
 //
 // PENTING: kalau dashboard TIDAK terbaca (redirect ke login/checkpoint
 // karena sesi kadaluarsa atau akun ditangguhkan/banned), fungsi ini
@@ -21,7 +21,7 @@ import { marketplaceInboxSelectors as sel } from "./selectors.js";
 export async function checkUnreadCount(page) {
   await page.goto(sel.inboxUrl, { waitUntil: "domcontentloaded" });
 
-  // Sama kayak di inboxMonitor.js: badge nongol duluan dengan angka "0"
+  // Sama kayak di rotator: badge nongol duluan dengan angka "0"
   // placeholder, baru beberapa detik kemudian keupdate ke angka asli.
   await page.waitForTimeout(6000);
 

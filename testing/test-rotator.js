@@ -18,7 +18,7 @@ if (accountIds.length === 0) {
 }
 
 const rotator = new AccountRotator(accountIds, {
-  delayBetweenAccountsMs: 3000, // jeda 3 detik antar akun (buat testing, dipersingkat)
+  delayBetweenBatchesMs: 3000, // jeda 3 detik antar batch (buat testing, dipersingkat)
   roundIntervalMs: 60 * 1000, // 1 menit antar putaran (buat testing, dipersingkat)
 });
 

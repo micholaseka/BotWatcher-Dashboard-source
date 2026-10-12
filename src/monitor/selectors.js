@@ -3,7 +3,7 @@
 // PETA, bukan OTAK. File ini isinya cuma "di mana elemen X berada di
 // halaman", dipisah dari logic supaya kalau Facebook ubah tampilan
 // (sering banget), kamu cuma perlu update file ini — gak perlu sentuh
-// inboxMonitor.js sama sekali.
+// checkUnread.js sama sekali.
 //
 // STATUS SAAT INI (uji coba tahap awal):
 // Kita belum butuh baca nama pengirim / per-percakapan. Target sekarang

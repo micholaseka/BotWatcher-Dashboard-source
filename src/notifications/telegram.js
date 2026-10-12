@@ -1,4 +1,4 @@
-// src/notify/telegram.js
+// src/notifications/telegram.js
 //
 // Notifikasi Telegram sederhana: cuma kirim "dari <label akun>: <jumlah>
 // pesan yang perlu dijawab". Tidak ada nama pengirim, tidak ada
@@ -24,8 +24,8 @@ export class TelegramNotifier {
     }
   }
 
-  // Dipanggil manual, atau langsung disambungkan ke event "new_messages"
-  // dari InboxMonitor lewat attachTo() di bawah.
+  // Dipanggil manual oleh main.mjs/index.js lewat event account_checked:
+  //   notifier.notifyUnread(accountName, unreadCount);
   async notifyUnread(accountLabel, totalUnread) {
     const text = `dari ${accountLabel}: ${totalUnread} pesan yang perlu dijawab`;
 
@@ -58,16 +58,5 @@ export class TelegramNotifier {
       // Cukup log error di sini.
       console.error(`[TelegramNotifier] Gagal kirim: ${err.message}`);
     }
-  }
-
-  // Helper: sambungkan langsung ke satu instance InboxMonitor.
-  // Dipanggil sekali per akun saat setup, mis:
-  //   const notifier = new TelegramNotifier();
-  //   notifier.attachTo(monitor, account.label);
-  attachTo(inboxMonitor, accountLabel) {
-    inboxMonitor.on("new_messages", ({ totalUnread }) => {
-      this.notifyUnread(accountLabel, totalUnread);
-    });
-    return this;
   }
 }

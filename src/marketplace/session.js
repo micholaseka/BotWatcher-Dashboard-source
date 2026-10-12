@@ -187,10 +187,9 @@ export class MarketplaceSession extends EventEmitter {
     }
 
     // PENTING: emit "login_status" di sini, SETELAH navigasi awal di atas
-    // selesai -- bukan sebelumnya. Listener (index.js) langsung memulai
-    // InboxMonitor begitu event ini diterima, dan InboxMonitor langsung
-    // page.goto(inboxUrl) di page yang SAMA. Kalau emit ini dipanggil
-    // sebelum navigasi Marketplace di atas selesai, dua goto() akan
+    // selesai -- bukan sebelumnya. Listener (rotator / app) langsung
+    // memproses halaman begitu event ini diterima. Kalau emit ini
+    // dipanggil sebelum navigasi di atas selesai, dua goto() akan
     // bertabrakan di page yang sama -> Chromium abort salah satunya
     // (net::ERR_ABORTED), dan pengecekan inbox pertama gagal.
     this.emit("login_status", {
