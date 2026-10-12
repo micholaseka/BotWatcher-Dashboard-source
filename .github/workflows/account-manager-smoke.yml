@@ -39,3 +39,6 @@ jobs:
 
       - name: Test unusable reason mapping
         run: node testing/test-unusable-reason.js
+
+      - name: Test rotation event contract
+        run: node testing/test-rotation-events.js

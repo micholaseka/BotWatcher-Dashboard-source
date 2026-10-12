@@ -58,6 +58,7 @@ export class AccountRotator extends EventEmitter {
     this.delayBetweenBatchesMs = delayBetweenBatchesMs;
     this.roundIntervalMs = roundIntervalMs;
     this.running = false;
+    this.round = 0;
   }
 
   async start() {
@@ -70,6 +71,7 @@ export class AccountRotator extends EventEmitter {
     );
 
     while (this.running) {
+      this.round += 1;
       await this._runOneRound();
       if (!this.running) break;
 
@@ -91,19 +93,35 @@ export class AccountRotator extends EventEmitter {
     const shuffled = shuffle(this.accountIds);
     let i = 0;
 
+    this.emit("round_started", {
+      round: this.round,
+      totalAccounts: shuffled.length,
+    });
+
     while (i < shuffled.length && this.running) {
       const batchSize = randomInt(this.minBatchSize, this.maxBatchSize);
       const batch = shuffled.slice(i, i + batchSize);
       i += batch.length;
 
+      // Event progres buat UI: footer "Putaran #N — X/Y akun dicek",
+      // baris "Sedang cek: ...", dan highlight "Mengecek..." di kartu.
+      this.emit("batch_started", {
+        batch,
+        checkedSoFar: i,
+        totalAccounts: shuffled.length,
+      });
       this.emit(
         "log",
         `Cek batch (${batch.length} akun): ${batch.join(", ")}`,
         "info",
       );
-      await Promise.all(
+      await Promise.allSettled(
         batch.map((accountId) => this._checkOneAccount(accountId)),
       );
+      this.emit("batch_finished", {
+        checkedSoFar: i,
+        totalAccounts: shuffled.length,
+      });
 
       if (i < shuffled.length && this.running) {
         await this._sleep(this.delayBetweenBatchesMs);
