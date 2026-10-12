@@ -130,7 +130,8 @@ export class AccountRotator extends EventEmitter {
   }
 
   async _checkOneAccount(accountId) {
-    const session = new MarketplaceSession({ accountId });
+    // headless: pengecekan background, jangan munculkan window browser.
+    const session = new MarketplaceSession({ accountId, headless: true });
 
     try {
       this.emit("log", `[${accountId}] Membuka sesi...`, "info");

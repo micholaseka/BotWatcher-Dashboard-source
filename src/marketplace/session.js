@@ -85,12 +85,18 @@ export class MarketplaceSession extends EventEmitter {
    * @param {boolean} [opts.forceLogin] Paksa buka halaman login Facebook
    *                                    (dipakai untuk akun berstatus error:
    *                                    sesi kadaluarsa / ditangguhkan).
+   * @param {boolean} [opts.headless]   Jalan tanpa window (default false).
+   *                                    Rotator pakai true biar cek 5-10
+   *                                    akun tidak memunculkan window;
+   *                                    sesi "Balas Sekarang" pakai false
+   *                                    supaya user bisa lihat & balas.
    */
-  constructor({ accountId = "default", forceLogin = false } = {}) {
+  constructor({ accountId = "default", forceLogin = false, headless = false } = {}) {
     super();
 
     this.accountId = accountId;
     this.forceLogin = forceLogin;
+    this.headless = headless;
 
     this.mode = ENGINE_MODE;
     this.config = getSessionConfig();
@@ -135,6 +141,10 @@ export class MarketplaceSession extends EventEmitter {
     this.page = this.context.pages()[0] || (await this.context.newPage());
     this.page.setDefaultTimeout(45000);
     this.page.setDefaultNavigationTimeout(45000);
+
+    if (this.headless) {
+      await this._hideHeadlessUserAgent();
+    }
 
     await this.checkLoginStatus();
 
@@ -246,6 +256,7 @@ export class MarketplaceSession extends EventEmitter {
       profileDirectory,
       {
         ...stealthLaunchOptions,
+        headless: this.headless,
       },
     );
 
@@ -293,6 +304,7 @@ export class MarketplaceSession extends EventEmitter {
       {
         executablePath: this.config.executablePath,
         ...stealthLaunchOptions,
+        headless: this.headless,
         args: [
           ...stealthLaunchOptions.args,
           `--profile-directory=${this.accountId}`,
@@ -301,6 +313,30 @@ export class MarketplaceSession extends EventEmitter {
     );
     // launchPersistentContext tidak mengembalikan objek browser terpisah;
     // this.browser sengaja dibiarkan null di mode ini.
+  }
+
+  /**
+   * Chromium headless melaporkan User-Agent "HeadlessChrome/<versi>" --
+   * tanda bot yang langsung terlihat server. Override di level HTTP
+   * header (bukan JS): kata "Headless" dihapus, versi Chrome-nya TETAP
+   * ASLI, jadi ini bukan UA palsu.
+   *
+   * Dipanggil sekali per sesi headless. Kalau gagal, sesi tetap jalan
+   * (kembali berdampak ke deteksi saja).
+   */
+  async _hideHeadlessUserAgent() {
+    try {
+      const originalUA = await this.page.evaluate(() => navigator.userAgent);
+
+      if (!originalUA.includes("HeadlessChrome")) return;
+
+      const cdp = await this.context.newCDPSession(this.page);
+      await cdp.send("Network.setUserAgentOverride", {
+        userAgent: originalUA.replace("HeadlessChrome", "Chrome"),
+      });
+    } catch {
+      // sengaja diabaikan: sesi headless tetap berguna walau gagal
+    }
   }
 
   /** Cek sekali apakah sesi saat ini sudah login (cookie c_user + xs ada). */

@@ -371,6 +371,9 @@ ipcMain.handle("accounts:openReply", async (_event, accountId) => {
   const session = new MarketplaceSession({
     accountId,
     forceLogin: needsLogin,
+    // headless: false -- sesi ini HARUS terlihat, user perlu lihat &
+    // berinteraksi (balas pesan / login ulang) di window browser.
+    headless: false,
   });
   session.on("log", (message, level) =>
     broadcastLog(`[balas:${accountId}] ${message}`, level),

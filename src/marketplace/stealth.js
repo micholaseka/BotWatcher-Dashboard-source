@@ -51,9 +51,11 @@ export async function getStealthChromium() {
  * Args di bawah aman -- bukan penanda automation. Flag automation
  * (mis. "--disable-blink-features=...") JANGAN ditambah manual di sini:
  * patchright sudah mengaturnya sendiri.
+ *
+ * headless TIDAK diatur di sini -- tiap sesi menentukan sendiri:
+ * rotator/cek background pakai headless, sesi "Balas Sekarang" headful.
  */
 export const stealthLaunchOptions = {
-  headless: false,
   viewport: null,
   args: ["--start-maximized", "--no-first-run", "--no-default-browser-check"],
 };
