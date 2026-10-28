@@ -162,15 +162,23 @@ export class MarketplaceSession extends EventEmitter {
         waitUntil: "domcontentloaded",
       });
     } else if (this.isLoggedIn) {
-      // Sesi sudah ada -> langsung ke Marketplace, jangan biarkan
-      // halaman nongkrong di about:blank.
-      this.emit("log", "Sesi ditemukan, membuka Marketplace...", "info");
-      await this.page.goto(
-        "https://www.facebook.com/marketplace/you/dashboard/",
-        {
-          waitUntil: "domcontentloaded",
-        },
-      );
+      if (this.headless) {
+        this.emit(
+          "log",
+          "Sesi ditemukan; dashboard akan dibuka oleh monitor inbox.",
+          "info",
+        );
+      } else {
+        // Sesi sudah ada -> langsung ke Marketplace, jangan biarkan
+        // halaman nongkrong di about:blank.
+        this.emit("log", "Sesi ditemukan, membuka Marketplace...", "info");
+        await this.page.goto(
+          "https://www.facebook.com/marketplace/you/dashboard/",
+          {
+            waitUntil: "domcontentloaded",
+          },
+        );
+      }
     } else {
       this.emit(
         "log",
@@ -179,7 +187,7 @@ export class MarketplaceSession extends EventEmitter {
           : "Belum ada sesi. Silakan login manual di jendela yang terbuka.",
         "warn",
       );
-      if (this.mode === "dev") {
+      if (this.mode === "dev" && !this.headless) {
         await this.page.goto("https://www.facebook.com/login", {
           waitUntil: "domcontentloaded",
         });

@@ -9,6 +9,7 @@ import { fileURLToPath } from "url";
 import { AccountManager } from "../src/accounts/accountManager.js";
 import { AccountRotator } from "../src/rotation/accountRotator.js";
 import { MarketplaceSession } from "../src/marketplace/session.js";
+import { HermesWebhook } from "../src/notifications/hermesWebhook.js";
 import { TelegramNotifier } from "../src/notifications/telegram.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -118,6 +119,7 @@ async function runAccountManagerSmokeTest() {
 }
 
 const notifier = new TelegramNotifier();
+const hermesWebhook = new HermesWebhook();
 const replySessions = new Map(); // accountId -> MarketplaceSession aktif buat reply manual
 
 let rotationState = {
@@ -196,6 +198,8 @@ function createRotator() {
       loggedIn === true &&
       unreadCount !== null &&
       unreadCount !== undefined;
+    const previousUnreadCount =
+      manager.getStatus(accountId)?.unreadCount ?? null;
 
     manager.updateStatus(accountId, {
       loggedIn: usable,
@@ -209,6 +213,16 @@ function createRotator() {
     if (usable && unreadCount > 0) {
       const account = manager.getAccount(accountId);
       notifier.notifyUnread(account?.name ?? accountId, unreadCount);
+    }
+
+    if (usable) {
+      const account = manager.getAccount(accountId);
+      void hermesWebhook.notifyIfNewInboxMessages({
+        accountId,
+        accountName: account?.name ?? accountId,
+        unreadCount,
+        previousUnreadCount,
+      });
     }
   });
 

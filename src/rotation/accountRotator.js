@@ -18,7 +18,11 @@
 
 import { EventEmitter } from "events";
 import { MarketplaceSession } from "../marketplace/session.js";
-import { checkUnreadCount, describeUnusable } from "../monitor/checkUnread.js";
+import {
+  checkUnreadCount,
+  describeUnusable,
+  InboxNavigationTimeoutError,
+} from "../monitor/checkUnread.js";
 
 function shuffle(array) {
   const result = [...array];
@@ -181,7 +185,16 @@ export class AccountRotator extends EventEmitter {
         unreadCount,
       });
     } catch (err) {
-      if (String(err.message).includes("ERR_TOO_MANY_REDIRECTS")) {
+      if (err instanceof InboxNavigationTimeoutError) {
+        const reason = `${err.message} Akun dilewati pada putaran ini.`;
+        this.emit("log", `[${accountId}] ${reason}`, "warn");
+        this.emit("account_checked", {
+          accountId,
+          loggedIn: false,
+          unreadCount: null,
+          reason,
+        });
+      } else if (String(err.message).includes("ERR_TOO_MANY_REDIRECTS")) {
         // Facebook memantulkan dashboard <-> login berkali-kali: cookie
         // akun ADA tapi ditolak (sesi bermasalah / kena limit) — ini
         // kondisi "Tidur", bukan error teknis.

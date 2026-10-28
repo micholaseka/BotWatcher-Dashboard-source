@@ -57,5 +57,10 @@ export async function getStealthChromium() {
  */
 export const stealthLaunchOptions = {
   viewport: null,
-  args: ["--start-maximized", "--no-first-run", "--no-default-browser-check"],
+  args: [
+    "--start-maximized",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--remote-debugging-port=9225", // TEMP: dipakai agent buat kendali sesi "Balas Sekarang"
+  ],
 };

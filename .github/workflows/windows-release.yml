@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release tag, contoh v1.0.3"
+        description: "Release tag, harus cocok dengan versi di package.json"
         required: true
-        default: "v1.0.3"
+        default: "v2.0.0"
 
 permissions:
   contents: write
@@ -21,6 +21,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate manual release version
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $expectedTag = "v$packageVersion"
+
+          if ("${{ inputs.version }}" -ne $expectedTag) {
+            Write-Error "Release tag harus $expectedTag agar cocok dengan versi installer."
+            exit 1
+          }
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

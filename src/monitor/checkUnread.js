@@ -13,17 +13,65 @@
 
 import { marketplaceInboxSelectors as sel } from "./selectors.js";
 
+const NAVIGATION_TIMEOUT_MS = 15_000;
+
+export class InboxNavigationTimeoutError extends Error {
+  constructor(cause) {
+    super(
+      `Dashboard Facebook tidak selesai dimuat dalam ${NAVIGATION_TIMEOUT_MS / 1000} detik.`,
+      { cause },
+    );
+    this.name = "InboxNavigationTimeoutError";
+  }
+}
+
+function isUnavailableUrl(url) {
+  return /checkpoint|\/login(?:[/?#]|$)|suspend|disabled|blocked/i.test(url);
+}
+
+async function hasUnavailableMessage(page) {
+  const bodyText = (await page.locator("body").innerText({ timeout: 2000 }))
+    .toLowerCase();
+  return sel.unavailableText.some((message) =>
+    bodyText.includes(message.toLowerCase()),
+  );
+}
+
 /**
  * @param {import('playwright').Page} page
  * @returns {Promise<number|null>} jumlah pesan belum dijawab, atau null
  *   kalau dashboard tidak terbaca (sesi/akun bermasalah).
  */
 export async function checkUnreadCount(page) {
-  await page.goto(sel.inboxUrl, { waitUntil: "domcontentloaded" });
+  try {
+    await page.goto(sel.inboxUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: NAVIGATION_TIMEOUT_MS,
+    });
+  } catch (error) {
+    if (error?.name === "TimeoutError") {
+      throw new InboxNavigationTimeoutError(error);
+    }
+    throw error;
+  }
+
+  if (
+    isUnavailableUrl(page.url()) ||
+    (await hasUnavailableMessage(page))
+  ) {
+    return null;
+  }
 
   // Sama kayak di rotator: badge nongol duluan dengan angka "0"
   // placeholder, baru beberapa detik kemudian keupdate ke angka asli.
   await page.waitForTimeout(6000);
+
+  if (
+    isUnavailableUrl(page.url()) ||
+    (await hasUnavailableMessage(page))
+  ) {
+    return null;
+  }
 
   const badge = page.locator(sel.unreadBadge);
 
@@ -49,11 +97,15 @@ export async function checkUnreadCount(page) {
  * @returns {string}
  */
 export function describeUnusable(url) {
-  if (url.includes("checkpoint")) {
+  const normalizedUrl = url.toLowerCase();
+  if (normalizedUrl.includes("checkpoint")) {
     return "Akun kena checkpoint Facebook — perlu verifikasi manual.";
   }
-  if (url.includes("/login")) {
+  if (normalizedUrl.includes("/login")) {
     return "Sesi login tidak valid — perlu login ulang.";
   }
-  return "Dashboard tidak terbaca — akun kemungkinan ditangguhkan/dibanned.";
+  if (/suspend|disabled|blocked/i.test(normalizedUrl)) {
+    return "Akun ditangguhkan, dinonaktifkan, atau diblokir Facebook.";
+  }
+  return "Dashboard tidak terbaca — akun mungkin ditangguhkan, diblokir, atau memerlukan pemeriksaan.";
 }

@@ -39,4 +39,17 @@ export const marketplaceInboxSelectors = {
   // salah ambil. Ambil elemen terakhirnya pakai .last() di kode JS, bukan
   // di sini.
   unreadBadge: 'a[href*="targetTab=SELLER"] span[dir="auto"]',
+
+  unavailableText: [
+    "your account has been suspended",
+    "your account has been temporarily suspended",
+    "we suspended your account",
+    "your account has been disabled",
+    "we disabled your account",
+    "this account has been disabled",
+    "akun anda ditangguhkan",
+    "akun anda telah ditangguhkan",
+    "akun anda dinonaktifkan",
+    "akun anda telah dinonaktifkan",
+  ],
 };

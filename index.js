@@ -13,11 +13,13 @@
 
 import { AccountManager } from "./src/accounts/accountManager.js";
 import { AccountRotator } from "./src/rotation/accountRotator.js";
+import { HermesWebhook } from "./src/notifications/hermesWebhook.js";
 import { TelegramNotifier } from "./src/notifications/telegram.js";
 
 async function main() {
   const manager = new AccountManager();
   const notifier = new TelegramNotifier();
+  const hermesWebhook = new HermesWebhook();
 
   await manager.load();
   const accounts = manager.getEnabledAccounts();
@@ -53,6 +55,8 @@ async function main() {
       loggedIn === true &&
       unreadCount !== null &&
       unreadCount !== undefined;
+    const previousUnreadCount =
+      manager.getStatus(accountId)?.unreadCount ?? null;
 
     manager.updateStatus(accountId, {
       loggedIn: usable,
@@ -65,6 +69,16 @@ async function main() {
     if (usable && unreadCount > 0) {
       const account = manager.getAccount(accountId);
       notifier.notifyUnread(account?.name ?? accountId, unreadCount);
+    }
+
+    if (usable) {
+      const account = manager.getAccount(accountId);
+      void hermesWebhook.notifyIfNewInboxMessages({
+        accountId,
+        accountName: account?.name ?? accountId,
+        unreadCount,
+        previousUnreadCount,
+      });
     }
   });
 
