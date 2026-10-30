@@ -33,3 +33,11 @@ nsis:
 
 portable:
   artifactName: "BotWatcher-Dashboard-Portable-${version}-${arch}.${ext}"
+
+linux:
+  category: Utility
+  maintainer: BotWatcher Dashboard
+  target:
+    - deb
+    - rpm
+  artifactName: "BotWatcher-Dashboard-${version}-${arch}.${ext}"

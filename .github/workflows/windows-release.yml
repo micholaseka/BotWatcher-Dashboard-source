@@ -1,4 +1,4 @@
-name: Windows Release
+name: Windows and Linux Release
 
 on:
   push:
@@ -15,8 +15,58 @@ permissions:
   contents: write
 
 jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install UI dependencies
+        working-directory: ui-design
+        run: pnpm install --frozen-lockfile
+
+      - name: Build React UI
+        run: pnpm run build:ui
+
+      - name: Verify Electron UI asset paths
+        run: |
+          if ! grep -Eq 'src="./assets/' ui-design/dist/index.html; then
+            echo "Vite production assets are not relative. Electron file:// packaging would produce a blank screen."
+            exit 1
+          fi
+
+      - name: Install bundled Chromium (patchright)
+        run: |
+          PLAYWRIGHT_BROWSERS_PATH="$GITHUB_WORKSPACE/playwright-browsers" \
+            pnpm exec patchright install chromium
+
+      - name: Build Linux packages
+        run: npx --yes electron-builder@26.15.7 --linux deb rpm --x64 --publish never
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            release/*.deb
+            release/*.rpm
+          if-no-files-found: error
+
   build-windows:
     runs-on: windows-latest
+    needs: build-linux
 
     steps:
       - name: Checkout
@@ -135,6 +185,12 @@ jobs:
           "created=true" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
 
+      - name: Download Linux packages
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-packages
+          path: release
+
       - name: Create GitHub Release
         if: |
           github.event_name == 'workflow_dispatch' ||
@@ -150,3 +206,5 @@ jobs:
             release/*.exe
             release/*.yml
             release/*.blockmap
+            release/*.deb
+            release/*.rpm
